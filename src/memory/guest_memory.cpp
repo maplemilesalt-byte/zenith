@@ -37,6 +37,21 @@ bool GuestMemory::map(std::uint64_t virtualAddress, std::uint64_t physicalAddres
     return true;
 }
 
+bool GuestMemory::protect(std::uint64_t virtualAddress, std::uint64_t size, Permissions permissions) {
+    if (!size || virtualAddress % PageSize || size % PageSize || size > GuestAddressSpaceSize) return false;
+    if (virtualAddress > GuestAddressSpaceSize - size) return false;
+
+    const auto firstPage = virtualAddress / PageSize;
+    const auto pageCount = size / PageSize;
+    for (std::uint64_t i = 0; i < pageCount; ++i) {
+        if (!pages_[static_cast<std::size_t>(firstPage + i)].mapped) return false;
+    }
+    for (std::uint64_t i = 0; i < pageCount; ++i) {
+        pages_[static_cast<std::size_t>(firstPage + i)].permissions = permissions;
+    }
+    return true;
+}
+
 bool GuestMemory::unmap(std::uint64_t virtualAddress, std::uint64_t size) {
     if (!size || virtualAddress % PageSize || size % PageSize || size > GuestAddressSpaceSize) return false;
     if (virtualAddress > GuestAddressSpaceSize - size) return false;
