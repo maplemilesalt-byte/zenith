@@ -50,11 +50,71 @@ bool CPU::fetch64(std::uint64_t& value) {
     return true;
 }
 
-bool CPU::decodeModRM(std::uint8_t modrm, std::uint8_t& reg, std::uint8_t& rm) const {
-    const std::uint8_t mod = (modrm >> 6) & 0x3;
-    if (mod != 0x3) return false; // Register-direct form only for now.
-    reg = (modrm >> 3) & 0x7;
-    rm = modrm & 0x7;
+bool CPU::decodeModRM(std::uint8_t value, ModRM& modrm) const {
+    modrm.mod = (value >> 6) & 0x3;
+    modrm.reg = (value >> 3) & 0x7;
+    modrm.rm = value & 0x7;
+    return true;
+}
+
+std::size_t CPU::extendedRegister(std::uint8_t index, std::uint8_t rexBit) const {
+    return static_cast<std::size_t>(index) + (((rexBit != 0) ? 1u : 0u) << 3);
+}
+
+bool CPU::resolveModRMAddress(const ModRM& modrm, std::uint8_t rex, std::uint64_t& address) {
+    if (modrm.mod == 3) return fail("ModRM operand is a register, not memory");
+
+    // SIB is intentionally not implemented yet.
+    if (modrm.rm == 4) return fail("SIB addressing is not implemented");
+
+    const auto baseReg = extendedRegister(modrm.rm, rex & 0x1);
+    std::int64_t displacement = 0;
+
+    if (modrm.mod == 0) {
+        if (modrm.rm == 5) {
+            // In 64-bit mode mod=00, r/m=101 is RIP-relative.
+            std::uint32_t raw = 0;
+            if (!fetch32(raw)) return false;
+            displacement = static_cast<std::int32_t>(raw);
+            address = static_cast<std::uint64_t>(static_cast<std::int64_t>(rip_) + displacement);
+            return true;
+        }
+    } else if (modrm.mod == 1) {
+        std::uint8_t raw = 0;
+        if (!fetch8(raw)) return false;
+        displacement = static_cast<std::int8_t>(raw);
+    } else if (modrm.mod == 2) {
+        std::uint32_t raw = 0;
+        if (!fetch32(raw)) return false;
+        displacement = static_cast<std::int32_t>(raw);
+    }
+
+    address = static_cast<std::uint64_t>(
+        static_cast<std::int64_t>(registers_[baseReg]) + displacement);
+    return true;
+}
+
+bool CPU::readModRMR64(const ModRM& modrm, std::uint8_t rex, std::uint64_t& value) {
+    if (modrm.mod == 3) {
+        value = registers_[extendedRegister(modrm.rm, rex & 0x1)];
+        return true;
+    }
+
+    std::uint64_t address = 0;
+    if (!resolveModRMAddress(modrm, rex, address)) return false;
+    if (!memory_.read64(address, value)) return fail("64-bit memory read failed");
+    return true;
+}
+
+bool CPU::writeModRMR64(const ModRM& modrm, std::uint8_t rex, std::uint64_t value) {
+    if (modrm.mod == 3) {
+        registers_[extendedRegister(modrm.rm, rex & 0x1)] = value;
+        return true;
+    }
+
+    std::uint64_t address = 0;
+    if (!resolveModRMAddress(modrm, rex, address)) return false;
+    if (!memory_.write64(address, value)) return fail("64-bit memory write failed");
     return true;
 }
 
@@ -86,16 +146,13 @@ bool CPU::step() {
     std::uint8_t opcode = 0;
     if (!fetch8(opcode)) return false;
 
-    if (opcode == 0x90) { // NOP
-        return true;
-    }
+    if (opcode == 0x90) return true; // NOP
 
-    // MOV r32, imm32 (B8+rd id). Writing a 32-bit register zero-extends it.
+    // MOV r32, imm32 (B8+rd id). A 32-bit write zero-extends in 64-bit mode.
     if (opcode >= 0xB8 && opcode <= 0xBF) {
         std::uint32_t immediate = 0;
         if (!fetch32(immediate)) return false;
-        const auto reg = static_cast<Register>(opcode - 0xB8);
-        registers_[static_cast<std::size_t>(reg)] = immediate;
+        registers_[static_cast<std::size_t>(opcode - 0xB8)] = immediate;
         return true;
     }
 
@@ -103,9 +160,8 @@ bool CPU::step() {
     if (opcode >= 0x50 && opcode <= 0x57) {
         const auto reg = static_cast<Register>(opcode - 0x50);
         const std::uint64_t newRsp = registers_[RSP] - 8;
-        if (!memory_.write64(newRsp, registers_[static_cast<std::size_t>(reg)])) {
+        if (!memory_.write64(newRsp, registers_[static_cast<std::size_t>(reg)]))
             return fail("stack push failed");
-        }
         registers_[RSP] = newRsp;
         return true;
     }
@@ -120,46 +176,64 @@ bool CPU::step() {
         return true;
     }
 
-    // REX.W prefix.
-    if (opcode == 0x48) {
-        std::uint8_t next = 0;
-        if (!fetch8(next)) return false;
+    // Parse an optional REX prefix. X is reserved for future SIB support.
+    std::uint8_t rex = 0;
+    if ((opcode & 0xF0) == 0x40) {
+        rex = opcode & 0x0F;
+        if (!fetch8(opcode)) return false;
+    }
 
-        // REX.W + MOV r64, imm64.
-        if (next >= 0xB8 && next <= 0xBF) {
-            std::uint64_t immediate = 0;
-            if (!fetch64(immediate)) return false;
-            registers_[static_cast<std::size_t>(next - 0xB8)] = immediate;
+    // REX.W + MOV r64, imm64.
+    if ((rex & 0x8) && opcode >= 0xB8 && opcode <= 0xBF) {
+        std::uint64_t immediate = 0;
+        if (!fetch64(immediate)) return false;
+        registers_[extendedRegister(opcode - 0xB8, rex & 0x1)] = immediate;
+        return true;
+    }
+
+    if (rex & 0x8) {
+        // MOV r/m64, r64 and MOV r64, r/m64.
+        if (opcode == 0x89 || opcode == 0x8B) {
+            std::uint8_t rawModRM = 0;
+            if (!fetch8(rawModRM)) return false;
+            ModRM modrm;
+            decodeModRM(rawModRM, modrm);
+            const auto reg = extendedRegister(modrm.reg, (rex >> 2) & 0x1);
+            if (opcode == 0x89)
+                return writeModRMR64(modrm, rex, registers_[reg]);
+
+            std::uint64_t value = 0;
+            if (!readModRMR64(modrm, rex, value)) return false;
+            registers_[reg] = value;
             return true;
         }
 
-        // REX.W + ADD/SUB/CMP r/m64, r64 with register-direct ModRM.
-        if (next == 0x01 || next == 0x29 || next == 0x39) {
-            std::uint8_t modrm = 0;
-            if (!fetch8(modrm)) return false;
-            std::uint8_t reg = 0, rm = 0;
-            if (!decodeModRM(modrm, reg, rm)) return fail("unsupported ModRM addressing mode");
-            const auto lhs = registers_[rm];
+        // REX.W + ADD/SUB/CMP r/m64, r64.
+        if (opcode == 0x01 || opcode == 0x29 || opcode == 0x39) {
+            std::uint8_t rawModRM = 0;
+            if (!fetch8(rawModRM)) return false;
+            ModRM modrm;
+            decodeModRM(rawModRM, modrm);
+            const auto reg = extendedRegister(modrm.reg, (rex >> 2) & 0x1);
+            std::uint64_t lhs = 0;
+            if (!readModRMR64(modrm, rex, lhs)) return false;
             const auto rhs = registers_[reg];
-            if (next == 0x01) {
+            if (opcode == 0x01) {
                 const auto result = lhs + rhs;
-                registers_[rm] = result;
+                if (!writeModRMR64(modrm, rex, result)) return false;
                 updateAddFlags(lhs, rhs, result);
-            } else if (next == 0x29) {
+            } else if (opcode == 0x29) {
                 const auto result = lhs - rhs;
-                registers_[rm] = result;
+                if (!writeModRMR64(modrm, rex, result)) return false;
                 updateSubFlags(lhs, rhs, result);
             } else {
                 updateSubFlags(lhs, rhs, lhs - rhs);
             }
             return true;
         }
-
-        return fail("unsupported REX.W instruction");
     }
 
-    // Near CALL rel32. The return address is the RIP after the displacement.
-    if (opcode == 0xE8) {
+    if (opcode == 0xE8) { // CALL rel32
         std::uint32_t rawDisplacement = 0;
         if (!fetch32(rawDisplacement)) return false;
         const auto returnAddress = rip_;
@@ -172,8 +246,7 @@ bool CPU::step() {
         return true;
     }
 
-    // RET near.
-    if (opcode == 0xC3) {
+    if (opcode == 0xC3) { // RET near
         const auto oldRsp = registers_[RSP];
         std::uint64_t returnAddress = 0;
         if (!memory_.read64(oldRsp, returnAddress)) return fail("return stack read failed");
@@ -182,16 +255,14 @@ bool CPU::step() {
         return true;
     }
 
-    // Short unconditional jump.
-    if (opcode == 0xEB) {
+    if (opcode == 0xEB) { // JMP short
         std::uint8_t displacement = 0;
         if (!fetch8(displacement)) return false;
         rip_ += static_cast<std::int64_t>(static_cast<std::int8_t>(displacement));
         return true;
     }
 
-    // Short conditional jumps: JZ / JNZ.
-    if (opcode == 0x74 || opcode == 0x75) {
+    if (opcode == 0x74 || opcode == 0x75) { // JZ / JNZ short
         std::uint8_t displacement = 0;
         if (!fetch8(displacement)) return false;
         const bool zero = (rflags_ & ZeroFlag) != 0;
