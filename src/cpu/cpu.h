@@ -3,6 +3,8 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <string>
 
 class GuestMemory;
 
@@ -20,6 +22,8 @@ public:
     static constexpr std::uint64_t SignFlag = 1ull << 7;
     static constexpr std::uint64_t OverflowFlag = 1ull << 11;
 
+    using GraphicsTextCallback = std::function<void(const std::string&)>;
+
     explicit CPU(GuestMemory& memory);
 
     void reset();
@@ -32,6 +36,9 @@ public:
     void setRip(std::uint64_t value);
     std::uint64_t rflags() const;
     const char* lastError() const;
+    bool halted() const;
+
+    void setGraphicsTextCallback(GraphicsTextCallback callback);
 
 private:
     struct ModRM {
@@ -59,4 +66,6 @@ private:
     std::uint64_t rip_ = 0;
     std::uint64_t rflags_ = 0;
     const char* lastError_ = nullptr;
+    bool halted_ = false;
+    GraphicsTextCallback graphicsTextCallback_;
 };
