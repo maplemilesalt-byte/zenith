@@ -99,10 +99,33 @@ bool CPU::step() {
         return true;
     }
 
-    // REX.W + MOV r64, imm64.
+    // PUSH r64 / POP r64.
+    if (opcode >= 0x50 && opcode <= 0x57) {
+        const auto reg = static_cast<Register>(opcode - 0x50);
+        const std::uint64_t newRsp = registers_[RSP] - 8;
+        if (!memory_.write64(newRsp, registers_[static_cast<std::size_t>(reg)])) {
+            return fail("stack push failed");
+        }
+        registers_[RSP] = newRsp;
+        return true;
+    }
+
+    if (opcode >= 0x58 && opcode <= 0x5F) {
+        const auto reg = static_cast<Register>(opcode - 0x58);
+        const std::uint64_t oldRsp = registers_[RSP];
+        std::uint64_t value = 0;
+        if (!memory_.read64(oldRsp, value)) return fail("stack pop failed");
+        registers_[static_cast<std::size_t>(reg)] = value;
+        registers_[RSP] = oldRsp + 8;
+        return true;
+    }
+
+    // REX.W prefix.
     if (opcode == 0x48) {
         std::uint8_t next = 0;
         if (!fetch8(next)) return false;
+
+        // REX.W + MOV r64, imm64.
         if (next >= 0xB8 && next <= 0xBF) {
             std::uint64_t immediate = 0;
             if (!fetch64(immediate)) return false;
@@ -133,6 +156,30 @@ bool CPU::step() {
         }
 
         return fail("unsupported REX.W instruction");
+    }
+
+    // Near CALL rel32. The return address is the RIP after the displacement.
+    if (opcode == 0xE8) {
+        std::uint32_t rawDisplacement = 0;
+        if (!fetch32(rawDisplacement)) return false;
+        const auto returnAddress = rip_;
+        const auto target = static_cast<std::uint64_t>(
+            static_cast<std::int64_t>(rip_) + static_cast<std::int32_t>(rawDisplacement));
+        const auto newRsp = registers_[RSP] - 8;
+        if (!memory_.write64(newRsp, returnAddress)) return fail("call stack write failed");
+        registers_[RSP] = newRsp;
+        rip_ = target;
+        return true;
+    }
+
+    // RET near.
+    if (opcode == 0xC3) {
+        const auto oldRsp = registers_[RSP];
+        std::uint64_t returnAddress = 0;
+        if (!memory_.read64(oldRsp, returnAddress)) return fail("return stack read failed");
+        registers_[RSP] = oldRsp + 8;
+        rip_ = returnAddress;
+        return true;
     }
 
     // Short unconditional jump.
