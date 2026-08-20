@@ -114,13 +114,11 @@ int main() {
     assert((cpu.rflags() & CPU::CarryFlag) != 0);
 
     cpu.setRegister(CPU::RAX, 0x123456789ABCDEF0ull);
-    cpu.setRegister(CPU::RCX, 0);
     cpu.setRip(0x2070);
     assert(memory.write8(0x2070, 0x48));
     assert(memory.write8(0x2071, 0xC1));
     assert(memory.write8(0x2072, 0xE0));
     assert(memory.write8(0x2073, 0x00)); // SHL RAX,0
-    cpu.setRegister(CPU::RCX, 0x1234);
     const auto flagsBeforeShift0 = cpu.rflags();
     assert(cpu.step());
     assert(cpu.getRegister(CPU::RAX) == 0x123456789ABCDEF0ull);
@@ -136,67 +134,56 @@ int main() {
     assert(cpu.step());
     assert(cpu.getRegister(CPU::RAX) == 2);
 
-    // All implemented short Jcc conditions are exercised with matching flags.
-    struct BranchCase { std::uint8_t opcode; std::uint64_t flags; bool take; };
-    const BranchCase branches[] = {
-        {0x70, CPU::OverflowFlag, true}, {0x71, CPU::OverflowFlag, false},
-        {0x72, CPU::CarryFlag, true}, {0x73, CPU::CarryFlag, false},
-        {0x74, CPU::ZeroFlag, true}, {0x75, CPU::ZeroFlag, false},
-        {0x76, CPU::CarryFlag, true}, {0x77, CPU::CarryFlag, false},
-        {0x78, CPU::SignFlag, true}, {0x79, CPU::SignFlag, false},
-        {0x7C, CPU::SignFlag, true}, {0x7D, CPU::SignFlag, false},
-        {0x7E, CPU::ZeroFlag, true}, {0x7F, CPU::ZeroFlag, false}
-    };
-    for (const auto& branch : branches) {
+    // All implemented short Jcc conditions. Each case establishes exact flags first.
+    auto testBranch = [&](std::uint8_t opcode, std::uint64_t lhs, std::uint64_t rhs,
+                          std::uint8_t compareOpcode, bool take) {
+        cpu.setRegister(CPU::RAX, lhs);
+        cpu.setRegister(CPU::RCX, rhs);
         cpu.setRip(0x2100);
-        cpu.setRegister(CPU::RAX, 0);
-        cpu.setRegister(CPU::RCX, 0);
-        assert(memory.write8(0x2100, branch.opcode));
-        assert(memory.write8(0x2101, 0x02));
-        cpu.setRegister(CPU::RDX, branch.flags);
-        // Establish the requested flags using the CPU's public state indirectly:
-        // use arithmetic for the common cases below; then overwrite only when zero.
-        if (branch.flags == CPU::OverflowFlag) {
-            cpu.setRegister(CPU::RAX, 0x7FFFFFFFFFFFFFFFull);
-            cpu.setRegister(CPU::RCX, 1);
-            cpu.setRip(0x2110);
-            assert(memory.write8(0x2110, 0x48));
-            assert(memory.write8(0x2111, 0x01));
-            assert(memory.write8(0x2112, 0xC8));
-            assert(cpu.step());
-            cpu.setRip(0x2100);
-        } else if (branch.flags == CPU::CarryFlag) {
-            cpu.setRegister(CPU::RAX, 0);
-            cpu.setRegister(CPU::RCX, 1);
-            cpu.setRip(0x2110);
-            assert(memory.write8(0x2110, 0x48));
-            assert(memory.write8(0x2111, 0x39));
-            assert(memory.write8(0x2112, 0xC8));
-            assert(cpu.step());
-            cpu.setRip(0x2100);
-        } else if (branch.flags == CPU::ZeroFlag) {
-            cpu.setRegister(CPU::RAX, 1);
-            cpu.setRegister(CPU::RCX, 1);
-            cpu.setRip(0x2110);
-            assert(memory.write8(0x2110, 0x48));
-            assert(memory.write8(0x2111, 0x39));
-            assert(memory.write8(0x2112, 0xC8));
-            assert(cpu.step());
-            cpu.setRip(0x2100);
-        } else {
-            cpu.setRegister(CPU::RAX, 0);
-            cpu.setRegister(CPU::RCX, 1);
-            cpu.setRip(0x2110);
-            assert(memory.write8(0x2110, 0x48));
-            assert(memory.write8(0x2111, 0x29));
-            assert(memory.write8(0x2112, 0xC8));
-            assert(cpu.step());
-            cpu.setRip(0x2100);
-        }
+        assert(memory.write8(0x2100, 0x48));
+        assert(memory.write8(0x2101, compareOpcode));
+        assert(memory.write8(0x2102, 0xC8));
         assert(cpu.step());
-        const auto expectedRip = branch.take ? 0x2104ull : 0x2102ull;
-        assert(cpu.rip() == expectedRip);
-    }
+        assert(memory.write8(0x2103, opcode));
+        assert(memory.write8(0x2104, 0x02));
+        assert(cpu.step());
+        assert(cpu.rip() == (take ? 0x2107ull : 0x2105ull));
+    };
+
+    // JO/JNO: 0x7fff... + 1 sets OF=1.
+    cpu.setRegister(CPU::RAX, 0x7FFFFFFFFFFFFFFFull);
+    cpu.setRegister(CPU::RCX, 1);
+    cpu.setRip(0x2110);
+    assert(memory.write8(0x2110, 0x48));
+    assert(memory.write8(0x2111, 0x01));
+    assert(memory.write8(0x2112, 0xC8));
+    assert(cpu.step());
+    cpu.setRip(0x2103);
+    assert(memory.write8(0x2103, 0x70));
+    assert(memory.write8(0x2104, 0x02));
+    assert(cpu.step());
+    assert(cpu.rip() == 0x2107);
+    cpu.setRip(0x2103);
+    assert(memory.write8(0x2103, 0x71));
+    assert(memory.write8(0x2104, 0x02));
+    assert(cpu.step());
+    assert(cpu.rip() == 0x2105);
+
+    // Unsigned: 0 < 1 gives CF=1, ZF=0.
+    testBranch(0x72, 0, 1, 0x39, true);   // JC
+    testBranch(0x73, 0, 1, 0x39, false);  // JNC
+    testBranch(0x74, 5, 5, 0x39, true);   // JE
+    testBranch(0x75, 5, 4, 0x39, true);   // JNE
+    testBranch(0x76, 0, 1, 0x39, true);   // JBE
+    testBranch(0x77, 2, 1, 0x39, true);   // JA
+    testBranch(0x78, 0, 1, 0x29, true);   // JS
+    testBranch(0x79, 2, 1, 0x29, true);   // JNS
+
+    // Signed: -1 < 1 gives SF=1, OF=0, ZF=0.
+    testBranch(0x7C, 0xFFFFFFFFFFFFFFFFull, 1, 0x39, true);   // JL
+    testBranch(0x7D, 0xFFFFFFFFFFFFFFFFull, 1, 0x39, false);  // JGE
+    testBranch(0x7E, 0xFFFFFFFFFFFFFFFFull, 1, 0x39, true);   // JLE
+    testBranch(0x7F, 0xFFFFFFFFFFFFFFFFull, 1, 0x39, false);  // JG
 
     // SIB addressing: base + index*scale and signed displacement.
     cpu.setRegister(CPU::RBX, 0x8000);
@@ -210,7 +197,8 @@ int main() {
     assert(cpu.step());
     assert(cpu.getRegister(CPU::RAX) == 0xAABBCCDDEEFF0011ull);
 
-    assert(memory.write64(0x7FFE, 0x1122334455667788ull));
+    cpu.setRegister(CPU::RBX, 0x8008);
+    assert(memory.write64(0x8006, 0x1122334455667788ull));
     cpu.setRip(0x2210);
     assert(memory.write8(0x2210, 0x48));
     assert(memory.write8(0x2211, 0x8B));
