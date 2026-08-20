@@ -11,6 +11,7 @@ add_executable(zenith
     src/renderer.cpp
     src/memory/guest_memory.cpp
     src/cpu/cpu.cpp
+    src/elf_loader.cpp
 )
 
 target_include_directories(zenith PRIVATE src)
@@ -54,3 +55,11 @@ add_executable(zenith_hello_world_tests
 )
 target_include_directories(zenith_hello_world_tests PRIVATE src)
 add_test(NAME zenith_hello_world_tests COMMAND zenith_hello_world_tests)
+
+add_executable(zenith_elf_loader_tests
+    tests/elf_loader_tests.cpp
+    src/elf_loader.cpp
+    src/memory/guest_memory.cpp
+)
+target_include_directories(zenith_elf_loader_tests PRIVATE src)
+add_test(NAME zenith_elf_loader_tests COMMAND zenith_elf_loader_tests)
