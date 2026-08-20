@@ -116,6 +116,30 @@ bool CPU::resolveModRMAddress(const ModRM& modrm, std::uint8_t rex, std::uint64_
     return true;
 }
 
+bool CPU::readModRMR8(const ModRM& modrm, std::uint8_t rex, std::uint8_t& value) {
+    if (modrm.mod == 3) {
+        const auto reg = extendedRegister(modrm.rm, rex & 0x1);
+        value = static_cast<std::uint8_t>(registers_[reg]);
+        return true;
+    }
+    std::uint64_t address = 0;
+    if (!resolveModRMAddress(modrm, rex, address)) return false;
+    if (!memory_.read8(address, value)) return fail("8-bit memory read failed");
+    return true;
+}
+
+bool CPU::readModRMR16(const ModRM& modrm, std::uint8_t rex, std::uint16_t& value) {
+    if (modrm.mod == 3) {
+        const auto reg = extendedRegister(modrm.rm, rex & 0x1);
+        value = static_cast<std::uint16_t>(registers_[reg]);
+        return true;
+    }
+    std::uint64_t address = 0;
+    if (!resolveModRMAddress(modrm, rex, address)) return false;
+    if (!memory_.read16(address, value)) return fail("16-bit memory read failed");
+    return true;
+}
+
 bool CPU::readModRMR64(const ModRM& modrm, std::uint8_t rex, std::uint64_t& value) {
     if (modrm.mod == 3) {
         value = registers_[extendedRegister(modrm.rm, rex & 0x1)];
@@ -231,6 +255,33 @@ bool CPU::step() {
             return true;
         }
 
+        // MOVZX/MOVSX r64, r/m8/r/m16.
+        if (opcode == 0x0F) {
+            std::uint8_t opcode2 = 0;
+            if (!fetch8(opcode2)) return false;
+            if (opcode2 == 0xB6 || opcode2 == 0xB7 || opcode2 == 0xBE || opcode2 == 0xBF) {
+                std::uint8_t rawModRM = 0;
+                if (!fetch8(rawModRM)) return false;
+                ModRM modrm;
+                decodeModRM(rawModRM, modrm);
+                const auto reg = extendedRegister(modrm.reg, (rex >> 2) & 0x1);
+                if (opcode2 == 0xB6 || opcode2 == 0xBE) {
+                    std::uint8_t value = 0;
+                    if (!readModRMR8(modrm, rex, value)) return false;
+                    registers_[reg] = (opcode2 == 0xB6)
+                        ? static_cast<std::uint64_t>(value)
+                        : static_cast<std::uint64_t>(static_cast<std::int64_t>(static_cast<std::int8_t>(value)));
+                } else {
+                    std::uint16_t value = 0;
+                    if (!readModRMR16(modrm, rex, value)) return false;
+                    registers_[reg] = (opcode2 == 0xB7)
+                        ? static_cast<std::uint64_t>(value)
+                        : static_cast<std::uint64_t>(static_cast<std::int64_t>(static_cast<std::int16_t>(value)));
+                }
+                return true;
+            }
+        }
+
         if (opcode == 0x01 || opcode == 0x11 || opcode == 0x21 ||
             opcode == 0x09 || opcode == 0x19 || opcode == 0x29 ||
             opcode == 0x31 || opcode == 0x39 || opcode == 0x85) {
@@ -291,7 +342,6 @@ bool CPU::step() {
             return true;
         }
 
-        // INC/DEC r/m64. Unlike ADD/SUB, INC and DEC preserve CF.
         if (opcode == 0xFF || opcode == 0xF7) {
             std::uint8_t rawModRM = 0;
             if (!fetch8(rawModRM)) return false;
@@ -318,7 +368,6 @@ bool CPU::step() {
             return fail("unsupported unary opcode");
         }
 
-        // Shift/rotate group: SHL/SAL /4, SHR /5, SAR /7.
         if (opcode == 0xC1 || opcode == 0xD3) {
             std::uint8_t rawModRM = 0;
             if (!fetch8(rawModRM)) return false;
@@ -391,7 +440,6 @@ bool CPU::step() {
         return true;
     }
 
-    // Short conditional branches.
     if ((opcode & 0xF0) == 0x70) {
         std::uint8_t displacement = 0;
         if (!fetch8(displacement)) return false;
