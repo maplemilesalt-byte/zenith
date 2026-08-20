@@ -64,33 +64,78 @@ std::size_t CPU::extendedRegister(std::uint8_t index, std::uint8_t rexBit) const
 bool CPU::resolveModRMAddress(const ModRM& modrm, std::uint8_t rex, std::uint64_t& address) {
     if (modrm.mod == 3) return fail("ModRM operand is a register, not memory");
 
-    // SIB is intentionally not implemented yet.
-    if (modrm.rm == 4) return fail("SIB addressing is not implemented");
+    const std::int64_t displacement = 0;
 
-    const auto baseReg = extendedRegister(modrm.rm, rex & 0x1);
-    std::int64_t displacement = 0;
+    // r/m=100 selects a SIB byte in 64-bit addressing mode.
+    if (modrm.rm == 4) {
+        std::uint8_t rawSIB = 0;
+        if (!fetch8(rawSIB)) return false;
+
+        const std::uint8_t scaleBits = (rawSIB >> 6) & 0x3;
+        const std::uint8_t indexBits = (rawSIB >> 3) & 0x7;
+        const std::uint8_t baseBits = rawSIB & 0x7;
+        const std::uint64_t scale = 1ull << scaleBits;
+
+        // In SIB, index=100 means no index unless REX.X is set.
+        const bool hasIndex = !(indexBits == 4 && (rex & 0x2) == 0);
+        const auto indexReg = extendedRegister(indexBits, (rex >> 1) & 0x1);
+
+        std::int64_t sibDisplacement = 0;
+        bool hasBase = true;
+
+        // With mod=00 and base=101 there is no base register; a disp32 follows.
+        if (modrm.mod == 0 && baseBits == 5) {
+            hasBase = false;
+            std::uint32_t raw = 0;
+            if (!fetch32(raw)) return false;
+            sibDisplacement = static_cast<std::int32_t>(raw);
+        } else if (modrm.mod == 1) {
+            std::uint8_t raw = 0;
+            if (!fetch8(raw)) return false;
+            sibDisplacement = static_cast<std::int8_t>(raw);
+        } else if (modrm.mod == 2) {
+            std::uint32_t raw = 0;
+            if (!fetch32(raw)) return false;
+            sibDisplacement = static_cast<std::int32_t>(raw);
+        }
+
+        std::int64_t effective = sibDisplacement;
+        if (hasBase) {
+            const auto baseReg = extendedRegister(baseBits, rex & 0x1);
+            effective += static_cast<std::int64_t>(registers_[baseReg]);
+        }
+        if (hasIndex) {
+            effective += static_cast<std::int64_t>(registers_[indexReg] * scale);
+        }
+
+        address = static_cast<std::uint64_t>(effective);
+        return true;
+    }
+
+    std::int64_t normalDisplacement = 0;
 
     if (modrm.mod == 0) {
         if (modrm.rm == 5) {
             // In 64-bit mode mod=00, r/m=101 is RIP-relative.
             std::uint32_t raw = 0;
             if (!fetch32(raw)) return false;
-            displacement = static_cast<std::int32_t>(raw);
-            address = static_cast<std::uint64_t>(static_cast<std::int64_t>(rip_) + displacement);
+            normalDisplacement = static_cast<std::int32_t>(raw);
+            address = static_cast<std::uint64_t>(static_cast<std::int64_t>(rip_) + normalDisplacement);
             return true;
         }
     } else if (modrm.mod == 1) {
         std::uint8_t raw = 0;
         if (!fetch8(raw)) return false;
-        displacement = static_cast<std::int8_t>(raw);
+        normalDisplacement = static_cast<std::int8_t>(raw);
     } else if (modrm.mod == 2) {
         std::uint32_t raw = 0;
         if (!fetch32(raw)) return false;
-        displacement = static_cast<std::int32_t>(raw);
+        normalDisplacement = static_cast<std::int32_t>(raw);
     }
 
+    const auto baseReg = extendedRegister(modrm.rm, rex & 0x1);
     address = static_cast<std::uint64_t>(
-        static_cast<std::int64_t>(registers_[baseReg]) + displacement);
+        static_cast<std::int64_t>(registers_[baseReg]) + normalDisplacement);
     return true;
 }
 
@@ -176,7 +221,7 @@ bool CPU::step() {
         return true;
     }
 
-    // Parse an optional REX prefix. X is reserved for future SIB support.
+    // Parse an optional REX prefix.
     std::uint8_t rex = 0;
     if ((opcode & 0xF0) == 0x40) {
         rex = opcode & 0x0F;
