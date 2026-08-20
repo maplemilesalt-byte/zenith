@@ -19,12 +19,12 @@ int main() {
     cpu.setRip(0x2000);
     assert(memory.write8(0x2000, 0x48));
     assert(memory.write8(0x2001, 0x39));
-    assert(memory.write8(0x2002, 0xC8)); // CMP RAX,RCX -> CF=1
+    assert(memory.write8(0x2002, 0xC8));
     assert(cpu.step());
     assert((cpu.rflags() & CPU::CarryFlag) != 0);
     assert(memory.write8(0x2003, 0x48));
     assert(memory.write8(0x2004, 0xFF));
-    assert(memory.write8(0x2005, 0xC0)); // INC RAX
+    assert(memory.write8(0x2005, 0xC0));
     assert(cpu.step());
     assert(cpu.getRegister(CPU::RAX) == 1);
     assert((cpu.rflags() & CPU::CarryFlag) != 0);
@@ -34,11 +34,11 @@ int main() {
     cpu.setRip(0x2010);
     assert(memory.write8(0x2010, 0x48));
     assert(memory.write8(0x2011, 0x39));
-    assert(memory.write8(0x2012, 0xC8)); // CF=0
+    assert(memory.write8(0x2012, 0xC8));
     assert(cpu.step());
     assert(memory.write8(0x2013, 0x48));
     assert(memory.write8(0x2014, 0xFF));
-    assert(memory.write8(0x2015, 0xC8)); // DEC RAX
+    assert(memory.write8(0x2015, 0xC8));
     assert(cpu.step());
     assert(cpu.getRegister(CPU::RAX) == 0x7FFFFFFFFFFFFFFFull);
     assert((cpu.rflags() & CPU::CarryFlag) == 0);
@@ -49,12 +49,12 @@ int main() {
     cpu.setRip(0x2020);
     assert(memory.write8(0x2020, 0x48));
     assert(memory.write8(0x2021, 0x39));
-    assert(memory.write8(0x2022, 0xC8)); // CF=1
+    assert(memory.write8(0x2022, 0xC8));
     assert(cpu.step());
     const auto flagsBeforeNot = cpu.rflags();
     assert(memory.write8(0x2023, 0x48));
     assert(memory.write8(0x2024, 0xF7));
-    assert(memory.write8(0x2025, 0xD0)); // NOT RAX
+    assert(memory.write8(0x2025, 0xD0));
     cpu.setRegister(CPU::RAX, 0x0F0F0F0F0F0F0F0Full);
     assert(cpu.step());
     assert(cpu.getRegister(CPU::RAX) == 0xF0F0F0F0F0F0F0F0ull);
@@ -64,7 +64,7 @@ int main() {
     cpu.setRip(0x2030);
     assert(memory.write8(0x2030, 0x48));
     assert(memory.write8(0x2031, 0xF7));
-    assert(memory.write8(0x2032, 0xD8)); // NEG RAX
+    assert(memory.write8(0x2032, 0xD8));
     assert(cpu.step());
     assert(cpu.getRegister(CPU::RAX) == 0xFFFFFFFFFFFFFFFBull);
     assert((cpu.rflags() & CPU::CarryFlag) != 0);
@@ -85,7 +85,7 @@ int main() {
     assert(memory.write8(0x2040, 0x48));
     assert(memory.write8(0x2041, 0xC1));
     assert(memory.write8(0x2042, 0xE0));
-    assert(memory.write8(0x2043, 0x01)); // SHL RAX,1: OF must be 1
+    assert(memory.write8(0x2043, 0x01));
     assert(cpu.step());
     assert(cpu.getRegister(CPU::RAX) == 0x8000000000000000ull);
     assert((cpu.rflags() & CPU::OverflowFlag) != 0);
@@ -96,7 +96,7 @@ int main() {
     assert(memory.write8(0x2050, 0x48));
     assert(memory.write8(0x2051, 0xC1));
     assert(memory.write8(0x2052, 0xE8));
-    assert(memory.write8(0x2053, 0x01)); // SHR RAX,1: OF follows original sign
+    assert(memory.write8(0x2053, 0x01));
     assert(cpu.step());
     assert(cpu.getRegister(CPU::RAX) == 0x4000000000000000ull);
     assert((cpu.rflags() & CPU::OverflowFlag) != 0);
@@ -107,7 +107,7 @@ int main() {
     assert(memory.write8(0x2060, 0x48));
     assert(memory.write8(0x2061, 0xC1));
     assert(memory.write8(0x2062, 0xF8));
-    assert(memory.write8(0x2063, 0x01)); // SAR RAX,1: OF must be 0
+    assert(memory.write8(0x2063, 0x01));
     assert(cpu.step());
     assert(cpu.getRegister(CPU::RAX) == 0xC000000000000000ull);
     assert((cpu.rflags() & CPU::OverflowFlag) == 0);
@@ -118,23 +118,22 @@ int main() {
     assert(memory.write8(0x2070, 0x48));
     assert(memory.write8(0x2071, 0xC1));
     assert(memory.write8(0x2072, 0xE0));
-    assert(memory.write8(0x2073, 0x00)); // SHL RAX,0
+    assert(memory.write8(0x2073, 0x00));
     const auto flagsBeforeShift0 = cpu.rflags();
     assert(cpu.step());
     assert(cpu.getRegister(CPU::RAX) == 0x123456789ABCDEF0ull);
     assert(cpu.rflags() == flagsBeforeShift0);
 
-    // Count from CL is masked to six bits.
     cpu.setRegister(CPU::RAX, 1);
     cpu.setRegister(CPU::RCX, 65);
     cpu.setRip(0x2080);
     assert(memory.write8(0x2080, 0x48));
     assert(memory.write8(0x2081, 0xD3));
-    assert(memory.write8(0x2082, 0xE0)); // SHL RAX,CL -> effective count 1
+    assert(memory.write8(0x2082, 0xE0));
     assert(cpu.step());
     assert(cpu.getRegister(CPU::RAX) == 2);
 
-    // All implemented short Jcc conditions. Each case establishes exact flags first.
+    // All implemented short Jcc conditions.
     auto testBranch = [&](std::uint8_t opcode, std::uint64_t lhs, std::uint64_t rhs,
                           std::uint8_t compareOpcode, bool take) {
         cpu.setRegister(CPU::RAX, lhs);
@@ -150,7 +149,6 @@ int main() {
         assert(cpu.rip() == (take ? 0x2107ull : 0x2105ull));
     };
 
-    // JO/JNO: 0x7fff... + 1 sets OF=1.
     cpu.setRegister(CPU::RAX, 0x7FFFFFFFFFFFFFFFull);
     cpu.setRegister(CPU::RCX, 1);
     cpu.setRip(0x2110);
@@ -169,21 +167,18 @@ int main() {
     assert(cpu.step());
     assert(cpu.rip() == 0x2105);
 
-    // Unsigned: 0 < 1 gives CF=1, ZF=0.
-    testBranch(0x72, 0, 1, 0x39, true);   // JC
-    testBranch(0x73, 0, 1, 0x39, false);  // JNC
-    testBranch(0x74, 5, 5, 0x39, true);   // JE
-    testBranch(0x75, 5, 4, 0x39, true);   // JNE
-    testBranch(0x76, 0, 1, 0x39, true);   // JBE
-    testBranch(0x77, 2, 1, 0x39, true);   // JA
-    testBranch(0x78, 0, 1, 0x29, true);   // JS
-    testBranch(0x79, 2, 1, 0x29, true);   // JNS
-
-    // Signed: -1 < 1 gives SF=1, OF=0, ZF=0.
-    testBranch(0x7C, 0xFFFFFFFFFFFFFFFFull, 1, 0x39, true);   // JL
-    testBranch(0x7D, 0xFFFFFFFFFFFFFFFFull, 1, 0x39, false);  // JGE
-    testBranch(0x7E, 0xFFFFFFFFFFFFFFFFull, 1, 0x39, true);   // JLE
-    testBranch(0x7F, 0xFFFFFFFFFFFFFFFFull, 1, 0x39, false);  // JG
+    testBranch(0x72, 0, 1, 0x39, true);
+    testBranch(0x73, 0, 1, 0x39, false);
+    testBranch(0x74, 5, 5, 0x39, true);
+    testBranch(0x75, 5, 4, 0x39, true);
+    testBranch(0x76, 0, 1, 0x39, true);
+    testBranch(0x77, 2, 1, 0x39, true);
+    testBranch(0x78, 0, 1, 0x29, true);
+    testBranch(0x79, 2, 1, 0x29, true);
+    testBranch(0x7C, 0xFFFFFFFFFFFFFFFFull, 1, 0x39, true);
+    testBranch(0x7D, 0xFFFFFFFFFFFFFFFFull, 1, 0x39, false);
+    testBranch(0x7E, 0xFFFFFFFFFFFFFFFFull, 1, 0x39, true);
+    testBranch(0x7F, 0xFFFFFFFFFFFFFFFFull, 1, 0x39, false);
 
     // SIB addressing: base + index*scale and signed displacement.
     cpu.setRegister(CPU::RBX, 0x8000);
@@ -193,7 +188,7 @@ int main() {
     assert(memory.write8(0x2200, 0x48));
     assert(memory.write8(0x2201, 0x8B));
     assert(memory.write8(0x2202, 0x04));
-    assert(memory.write8(0x2203, 0x8B)); // [RBX + RCX*4]
+    assert(memory.write8(0x2203, 0x8B));
     assert(cpu.step());
     assert(cpu.getRegister(CPU::RAX) == 0xAABBCCDDEEFF0011ull);
 
@@ -203,9 +198,94 @@ int main() {
     assert(memory.write8(0x2210, 0x48));
     assert(memory.write8(0x2211, 0x8B));
     assert(memory.write8(0x2212, 0x43));
-    assert(memory.write8(0x2213, 0xFE)); // [RBX-2]
+    assert(memory.write8(0x2213, 0xFE));
     assert(cpu.step());
     assert(cpu.getRegister(CPU::RAX) == 0x1122334455667788ull);
+
+    // MOVZX/MOVSX register operands, byte and word widths.
+    cpu.setRegister(CPU::RAX, 0xFFFFFFFFFFFFFF80ull);
+    cpu.setRip(0x2300);
+    assert(memory.write8(0x2300, 0x48));
+    assert(memory.write8(0x2301, 0x0F));
+    assert(memory.write8(0x2302, 0xB6));
+    assert(memory.write8(0x2303, 0xC8)); // MOVZX RCX, AL
+    assert(cpu.step());
+    assert(cpu.getRegister(CPU::RCX) == 0x80ull);
+
+    cpu.setRip(0x2304);
+    assert(memory.write8(0x2304, 0x48));
+    assert(memory.write8(0x2305, 0x0F));
+    assert(memory.write8(0x2306, 0xBE));
+    assert(memory.write8(0x2307, 0xD0)); // MOVSX RDX, AL
+    assert(cpu.step());
+    assert(cpu.getRegister(CPU::RDX) == 0xFFFFFFFFFFFFFF80ull);
+
+    cpu.setRegister(CPU::RCX, 0xFFFFFFFFFFFFFFFFull);
+    cpu.setRip(0x2308);
+    assert(memory.write8(0x2308, 0x4C));
+    assert(memory.write8(0x2309, 0x0F));
+    assert(memory.write8(0x230A, 0xB7));
+    assert(memory.write8(0x230B, 0xC1)); // MOVZX R8, CX
+    assert(cpu.step());
+    assert(cpu.getRegister(CPU::R8) == 0xFFFFull);
+
+    cpu.setRip(0x230C);
+    assert(memory.write8(0x230C, 0x4C));
+    assert(memory.write8(0x230D, 0x0F));
+    assert(memory.write8(0x230E, 0xBF));
+    assert(memory.write8(0x230F, 0xD1)); // MOVSX R10, CX
+    assert(cpu.step());
+    assert(cpu.getRegister(CPU::R10) == 0xFFFFFFFFFFFFFFFFull);
+
+    // MOVZX/MOVSX from memory must use the full ModRM/SIB address decoder.
+    cpu.setRegister(CPU::RBX, 0x8000);
+    cpu.setRegister(CPU::RCX, 2);
+    assert(memory.write8(0x8008, 0xFE));
+    cpu.setRip(0x2310);
+    assert(memory.write8(0x2310, 0x48));
+    assert(memory.write8(0x2311, 0x0F));
+    assert(memory.write8(0x2312, 0xB6));
+    assert(memory.write8(0x2313, 0x44));
+    assert(memory.write8(0x2314, 0x8B));
+    assert(memory.write8(0x2315, 0x00)); // [RBX + RCX*4]
+    assert(cpu.step());
+    assert(cpu.getRegister(CPU::RAX) == 0xFEull);
+
+    assert(memory.write16(0x8006, 0xFF80));
+    cpu.setRip(0x2320);
+    assert(memory.write8(0x2320, 0x48));
+    assert(memory.write8(0x2321, 0x0F));
+    assert(memory.write8(0x2322, 0xBF));
+    assert(memory.write8(0x2323, 0x43));
+    assert(memory.write8(0x2324, 0xFE)); // [RBX-2]
+    assert(cpu.step());
+    assert(cpu.getRegister(CPU::RAX) == 0xFFFFFFFFFFFFFF80ull);
+
+    // CMP must not modify operands and must produce signed overflow correctly.
+    cpu.setRegister(CPU::RAX, 0x7FFFFFFFFFFFFFFFull);
+    cpu.setRegister(CPU::RCX, 0xFFFFFFFFFFFFFFFFull);
+    cpu.setRip(0x2330);
+    assert(memory.write8(0x2330, 0x48));
+    assert(memory.write8(0x2331, 0x39));
+    assert(memory.write8(0x2332, 0xC8));
+    assert(cpu.step());
+    assert(cpu.getRegister(CPU::RAX) == 0x7FFFFFFFFFFFFFFFull);
+    assert(cpu.getRegister(CPU::RCX) == 0xFFFFFFFFFFFFFFFFull);
+    assert((cpu.rflags() & CPU::OverflowFlag) != 0);
+    assert((cpu.rflags() & CPU::SignFlag) != 0);
+    assert((cpu.rflags() & CPU::ZeroFlag) == 0);
+
+    // SIB with REX.X/REX.B and no base (base=5, mod=00).
+    cpu.setRegister(CPU::R13, 1);
+    assert(memory.write64(0x4010, 0x123456789ABCDEF0ull));
+    cpu.setRip(0x2340);
+    assert(memory.write8(0x2340, 0x4A)); // REX.W + X
+    assert(memory.write8(0x2341, 0x8B));
+    assert(memory.write8(0x2342, 0x04));
+    assert(memory.write8(0x2343, 0xAD)); // [R13*4 + disp32]
+    assert(memory.write32(0x2344, 0x400C));
+    assert(cpu.step());
+    assert(cpu.getRegister(CPU::RAX) == 0x123456789ABCDEF0ull);
 
     std::cout << "CPU instruction tests passed.\n";
     return 0;
