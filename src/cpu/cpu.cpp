@@ -239,7 +239,8 @@ bool CPU::step() {
 
         if (opcode == 0x01 || opcode == 0x21 ||
             opcode == 0x09 || opcode == 0x31 ||
-            opcode == 0x29 || opcode == 0x39) {
+            opcode == 0x29 || opcode == 0x39 ||
+            opcode == 0x85) {
             std::uint8_t rawModRM = 0;
             if (!fetch8(rawModRM)) return false;
             ModRM modrm;
@@ -260,16 +261,14 @@ bool CPU::step() {
             } else if (opcode == 0x39) {
                 updateSubFlags(lhs, rhs, lhs - rhs);
             } else {
-                std::uint64_t result = 0;
-                if (opcode == 0x21) {
-                    result = lhs & rhs;
-                } else if (opcode == 0x09) {
-                    result = lhs | rhs;
-                } else {
-                    result = lhs ^ rhs;
-                }
+                const auto result = (opcode == 0x21) ? (lhs & rhs) :
+                                    (opcode == 0x09) ? (lhs | rhs) :
+                                    (opcode == 0x31) ? (lhs ^ rhs) :
+                                    (lhs & rhs);
 
-                if (!writeModRMR64(modrm, rex, result)) return false;
+                if (opcode != 0x85) {
+                    if (!writeModRMR64(modrm, rex, result)) return false;
+                }
 
                 rflags_ &= ~(CarryFlag | OverflowFlag | ZeroFlag | SignFlag);
                 if (result == 0) rflags_ |= ZeroFlag;
