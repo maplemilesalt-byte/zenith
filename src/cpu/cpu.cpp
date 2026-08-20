@@ -401,20 +401,20 @@ bool CPU::step() {
         const bool of = (rflags_ & OverflowFlag) != 0;
         bool take = false;
         switch (opcode) {
-            case 0x70: take = of; break;                 // JO
-            case 0x71: take = !of; break;                // JNO
-            case 0x72: take = cf; break;                 // JC/JB
-            case 0x73: take = !cf; break;                // JNC/JAE
-            case 0x74: take = zf; break;                 // JE/JZ
-            case 0x75: take = !zf; break;                // JNE/JNZ
-            case 0x76: take = cf || zf; break;           // JBE
-            case 0x77: take = !cf && !zf; break;         // JA
-            case 0x78: take = sf; break;                 // JS
-            case 0x79: take = !sf; break;                // JNS
-            case 0x7C: take = sf != of; break;           // JL
-            case 0x7D: take = sf == of; break;           // JGE
-            case 0x7E: take = zf || (sf != of); break;   // JLE
-            case 0x7F: take = !zf && (sf == of); break;  // JG
+            case 0x70: take = of; break;
+            case 0x71: take = !of; break;
+            case 0x72: take = cf; break;
+            case 0x73: take = !cf; break;
+            case 0x74: take = zf; break;
+            case 0x75: take = !zf; break;
+            case 0x76: take = cf || zf; break;
+            case 0x77: take = !cf && !zf; break;
+            case 0x78: take = sf; break;
+            case 0x79: take = !sf; break;
+            case 0x7C: take = sf != of; break;
+            case 0x7D: take = sf == of; break;
+            case 0x7E: take = zf || (sf != of); break;
+            case 0x7F: take = !zf && (sf == of); break;
             default: return fail("unsupported conditional branch");
         }
         if (take) rip_ += static_cast<std::int64_t>(static_cast<std::int8_t>(displacement));
