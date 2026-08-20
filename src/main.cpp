@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cstdint>
 #include <iostream>
+#include <string>
 #include <thread>
 
 int main(int argc, char** argv) {
