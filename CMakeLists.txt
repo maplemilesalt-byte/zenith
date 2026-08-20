@@ -38,3 +38,11 @@ add_executable(zenith_cpu_tests
 )
 target_include_directories(zenith_cpu_tests PRIVATE src)
 add_test(NAME zenith_cpu_tests COMMAND zenith_cpu_tests)
+
+add_executable(zenith_cpu_instruction_tests
+    tests/cpu_instruction_tests.cpp
+    src/cpu/cpu.cpp
+    src/memory/guest_memory.cpp
+)
+target_include_directories(zenith_cpu_instruction_tests PRIVATE src)
+add_test(NAME zenith_cpu_instruction_tests COMMAND zenith_cpu_instruction_tests)
