@@ -1,4 +1,5 @@
 #include "memory/guest_memory.h"
+
 #include <cassert>
 #include <cstdint>
 #include <iostream>
@@ -20,6 +21,18 @@ int main() {
 
     std::uint8_t unmappedValue = 0;
     assert(!memory.read8(0x2000, unmappedValue));
+
+    // Cross-page accesses must work when both pages are mapped.
+    assert(memory.map(0x3000, 0x2000, GuestMemory::PageSize, P::Read | P::Write));
+    assert(memory.map(0x4000, 0x3000, GuestMemory::PageSize, P::Read | P::Write));
+    assert(memory.write64(0x3FFC, 0xAABBCCDDEEFF0011ull));
+    assert(memory.read64(0x3FFC, value));
+    assert(value == 0xAABBCCDDEEFF0011ull);
+
+    // A multi-byte access must fail if the second page is unmapped.
+    assert(memory.unmap(0x4000, GuestMemory::PageSize));
+    assert(!memory.read64(0x3FFC, value));
+
     std::cout << "GuestMemory tests passed.\n";
     return 0;
 }
