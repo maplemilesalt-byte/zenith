@@ -193,6 +193,68 @@ int main() {
     assert(cpu.step());
     assert(cpu.getRegister(CPU::R8) == 0xFEEDFACECAFED00Dull);
 
+    // Logical operations use the 64-bit register form and update logical flags.
+    // AND: 0xFF00 & 0x0F0F = 0x0F00, with CF/OF cleared and ZF/SF set from result.
+    cpu.setRegister(CPU::RAX, 0xFF00ull);
+    cpu.setRegister(CPU::RCX, 0x0F0Full);
+    cpu.setRip(0x10D0);
+    cpu.setRegister(CPU::RDX, 0);
+    assert(memory.write8(0x10D0, 0x48));
+    assert(memory.write8(0x10D1, 0x21));
+    assert(memory.write8(0x10D2, 0xC8));
+    assert(cpu.step());
+    assert(cpu.getRegister(CPU::RAX) == 0x0F00ull);
+    assert((cpu.rflags() & (CPU::CarryFlag | CPU::OverflowFlag | CPU::ZeroFlag | CPU::SignFlag)) == 0);
+
+    // OR: set a negative result and verify SF, while CF/OF remain clear.
+    cpu.setRegister(CPU::RAX, 0x8000000000000000ull);
+    cpu.setRegister(CPU::RCX, 1ull);
+    cpu.setRip(0x10E0);
+    assert(memory.write8(0x10E0, 0x48));
+    assert(memory.write8(0x10E1, 0x09));
+    assert(memory.write8(0x10E2, 0xC8));
+    assert(cpu.step());
+    assert(cpu.getRegister(CPU::RAX) == 0x8000000000000001ull);
+    assert((cpu.rflags() & CPU::SignFlag) != 0);
+    assert((cpu.rflags() & (CPU::CarryFlag | CPU::OverflowFlag | CPU::ZeroFlag)) == 0);
+
+    // XOR: equal operands produce zero and therefore set ZF.
+    cpu.setRegister(CPU::RAX, 0x123456789ABCDEF0ull);
+    cpu.setRegister(CPU::RCX, 0x123456789ABCDEF0ull);
+    cpu.setRip(0x10F0);
+    assert(memory.write8(0x10F0, 0x48));
+    assert(memory.write8(0x10F1, 0x31));
+    assert(memory.write8(0x10F2, 0xC8));
+    assert(cpu.step());
+    assert(cpu.getRegister(CPU::RAX) == 0);
+    assert((cpu.rflags() & CPU::ZeroFlag) != 0);
+    assert((cpu.rflags() & (CPU::CarryFlag | CPU::SignFlag | CPU::OverflowFlag)) == 0);
+
+    // TEST is non-destructive: it computes AND for flags but does not modify RAX.
+    cpu.setRegister(CPU::RAX, 0x8000000000000000ull);
+    cpu.setRegister(CPU::RCX, 0x8000000000000000ull);
+    cpu.setRip(0x1100);
+    assert(memory.write8(0x1100, 0x48));
+    assert(memory.write8(0x1101, 0x85));
+    assert(memory.write8(0x1102, 0xC8));
+    assert(cpu.step());
+    assert(cpu.getRegister(CPU::RAX) == 0x8000000000000000ull);
+    assert((cpu.rflags() & CPU::SignFlag) != 0);
+    assert((cpu.rflags() & (CPU::CarryFlag | CPU::OverflowFlag | CPU::ZeroFlag)) == 0);
+
+    // TEST of disjoint values must set ZF and leave both operands untouched.
+    cpu.setRegister(CPU::RAX, 0x10ull);
+    cpu.setRegister(CPU::RCX, 0x01ull);
+    cpu.setRip(0x1110);
+    assert(memory.write8(0x1110, 0x48));
+    assert(memory.write8(0x1111, 0x85));
+    assert(memory.write8(0x1112, 0xC8));
+    assert(cpu.step());
+    assert(cpu.getRegister(CPU::RAX) == 0x10ull);
+    assert(cpu.getRegister(CPU::RCX) == 0x01ull);
+    assert((cpu.rflags() & CPU::ZeroFlag) != 0);
+    assert((cpu.rflags() & (CPU::CarryFlag | CPU::SignFlag | CPU::OverflowFlag)) == 0);
+
     cpu.setRip(0x10C0);
     assert(memory.write8(0x10C0, 0xCC));
     assert(!cpu.step());
