@@ -44,6 +44,8 @@ private:
     bool fetch32(std::uint32_t& value);
     bool fetch64(std::uint64_t& value);
     bool decodeModRM(std::uint8_t value, ModRM& modrm) const;
+    bool readModRMR8(const ModRM& modrm, std::uint8_t rex, std::uint8_t& value);
+    bool readModRMR16(const ModRM& modrm, std::uint8_t rex, std::uint16_t& value);
     bool readModRMR64(const ModRM& modrm, std::uint8_t rex, std::uint64_t& value);
     bool writeModRMR64(const ModRM& modrm, std::uint8_t rex, std::uint64_t value);
     bool resolveModRMAddress(const ModRM& modrm, std::uint8_t rex, std::uint64_t& address);
