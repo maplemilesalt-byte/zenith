@@ -166,15 +166,12 @@ bool CPU::step() {
     if (!fetch8(opcode)) return false;
     if (opcode == 0x90) return true;
 
-    // In 64-bit mode a REX prefix is 0x40-0x4F. If multiple REX prefixes
-    // occur, the final one supplies the effective REX bits for the opcode.
     std::uint8_t rex = 0;
     while ((opcode & 0xF0) == 0x40) {
         rex = opcode & 0x0F;
         if (!fetch8(opcode)) return false;
     }
 
-    // MOV r32, imm32 (B8+rd). A 32-bit write zero-extends in 64-bit mode.
     if (!(rex & 0x8) && opcode >= 0xB8 && opcode <= 0xBF) {
         std::uint32_t immediate = 0;
         if (!fetch32(immediate)) return false;
@@ -182,7 +179,6 @@ bool CPU::step() {
         return true;
     }
 
-    // REX.W + MOV r64, imm64.
     if ((rex & 0x8) && opcode >= 0xB8 && opcode <= 0xBF) {
         std::uint64_t immediate = 0;
         if (!fetch64(immediate)) return false;
@@ -190,7 +186,6 @@ bool CPU::step() {
         return true;
     }
 
-    // PUSH r64 / POP r64. REX.B extends the opcode register to R8-R15.
     if (opcode >= 0x50 && opcode <= 0x57) {
         const auto reg = extendedRegister(opcode - 0x50, rex & 0x1);
         const std::uint64_t newRsp = registers_[RSP] - 8;
@@ -210,7 +205,6 @@ bool CPU::step() {
     }
 
     if (rex & 0x8) {
-        // LEA r64, m. LEA calculates an effective address without reading memory.
         if (opcode == 0x8D) {
             std::uint8_t rawModRM = 0;
             if (!fetch8(rawModRM)) return false;
@@ -237,10 +231,9 @@ bool CPU::step() {
             return true;
         }
 
-        if (opcode == 0x01 || opcode == 0x21 ||
-            opcode == 0x09 || opcode == 0x31 ||
-            opcode == 0x29 || opcode == 0x39 ||
-            opcode == 0x85) {
+        if (opcode == 0x01 || opcode == 0x11 || opcode == 0x21 ||
+            opcode == 0x09 || opcode == 0x19 || opcode == 0x29 ||
+            opcode == 0x31 || opcode == 0x39 || opcode == 0x85) {
             std::uint8_t rawModRM = 0;
             if (!fetch8(rawModRM)) return false;
             ModRM modrm;
@@ -249,15 +242,38 @@ bool CPU::step() {
             std::uint64_t lhs = 0;
             if (!readModRMR64(modrm, rex, lhs)) return false;
             const auto rhs = registers_[reg];
+            const auto carry = (rflags_ & CarryFlag) ? 1ull : 0ull;
 
             if (opcode == 0x01) {
                 const auto result = lhs + rhs;
                 if (!writeModRMR64(modrm, rex, result)) return false;
                 updateAddFlags(lhs, rhs, result);
+            } else if (opcode == 0x11) {
+                const auto result = lhs + rhs + carry;
+                if (!writeModRMR64(modrm, rex, result)) return false;
+                rflags_ &= ~(CarryFlag | ZeroFlag | SignFlag | OverflowFlag);
+                if (result < lhs || (carry && result == lhs)) rflags_ |= CarryFlag;
+                if (result == 0) rflags_ |= ZeroFlag;
+                if (result & (1ull << 63)) rflags_ |= SignFlag;
+                const bool a = (lhs >> 63) != 0;
+                const bool b = (rhs >> 63) != 0;
+                const bool r = (result >> 63) != 0;
+                if (a == b && a != r) rflags_ |= OverflowFlag;
             } else if (opcode == 0x29) {
                 const auto result = lhs - rhs;
                 if (!writeModRMR64(modrm, rex, result)) return false;
                 updateSubFlags(lhs, rhs, result);
+            } else if (opcode == 0x19) {
+                const auto result = lhs - rhs - carry;
+                if (!writeModRMR64(modrm, rex, result)) return false;
+                rflags_ &= ~(CarryFlag | ZeroFlag | SignFlag | OverflowFlag);
+                if (lhs < rhs || (carry && lhs - rhs == 0)) rflags_ |= CarryFlag;
+                if (result == 0) rflags_ |= ZeroFlag;
+                if (result & (1ull << 63)) rflags_ |= SignFlag;
+                const bool a = (lhs >> 63) != 0;
+                const bool b = (rhs >> 63) != 0;
+                const bool r = (result >> 63) != 0;
+                if (a != b && a != r) rflags_ |= OverflowFlag;
             } else if (opcode == 0x39) {
                 updateSubFlags(lhs, rhs, lhs - rhs);
             } else {
@@ -265,14 +281,83 @@ bool CPU::step() {
                                     (opcode == 0x09) ? (lhs | rhs) :
                                     (opcode == 0x31) ? (lhs ^ rhs) :
                                     (lhs & rhs);
-
                 if (opcode != 0x85) {
                     if (!writeModRMR64(modrm, rex, result)) return false;
                 }
-
                 rflags_ &= ~(CarryFlag | OverflowFlag | ZeroFlag | SignFlag);
                 if (result == 0) rflags_ |= ZeroFlag;
                 if (result & (1ull << 63)) rflags_ |= SignFlag;
+            }
+            return true;
+        }
+
+        // INC/DEC r/m64. Unlike ADD/SUB, INC and DEC preserve CF.
+        if (opcode == 0xFF || opcode == 0xF7) {
+            std::uint8_t rawModRM = 0;
+            if (!fetch8(rawModRM)) return false;
+            ModRM modrm;
+            decodeModRM(rawModRM, modrm);
+            std::uint64_t value = 0;
+            if (!readModRMR64(modrm, rex, value)) return false;
+            const auto oldCarry = rflags_ & CarryFlag;
+            if (opcode == 0xFF && (modrm.reg == 0 || modrm.reg == 1)) {
+                const auto result = modrm.reg == 0 ? value + 1 : value - 1;
+                if (!writeModRMR64(modrm, rex, result)) return false;
+                if (modrm.reg == 0) updateAddFlags(value, 1, result);
+                else updateSubFlags(value, 1, result);
+                rflags_ = (rflags_ & ~CarryFlag) | oldCarry;
+                return true;
+            }
+            if (opcode == 0xF7 && (modrm.reg == 2 || modrm.reg == 3)) {
+                if (modrm.reg == 2) return writeModRMR64(modrm, rex, ~value);
+                const auto result = 0ull - value;
+                if (!writeModRMR64(modrm, rex, result)) return false;
+                updateSubFlags(0, value, result);
+                return true;
+            }
+            return fail("unsupported unary opcode");
+        }
+
+        // Shift/rotate group: SHL/SAL /4, SHR /5, SAR /7.
+        if (opcode == 0xC1 || opcode == 0xD3) {
+            std::uint8_t rawModRM = 0;
+            if (!fetch8(rawModRM)) return false;
+            ModRM modrm;
+            decodeModRM(rawModRM, modrm);
+            if (modrm.reg != 4 && modrm.reg != 5 && modrm.reg != 7) return fail("unsupported shift opcode");
+            std::uint8_t count = 0;
+            if (opcode == 0xC1) {
+                if (!fetch8(count)) return false;
+            } else {
+                count = static_cast<std::uint8_t>(registers_[RCX] & 0xFF);
+            }
+            count &= 0x3F;
+            std::uint64_t value = 0;
+            if (!readModRMR64(modrm, rex, value)) return false;
+            if (count == 0) return true;
+            const auto original = value;
+            std::uint64_t result = 0;
+            bool carry = false;
+            if (modrm.reg == 4) {
+                result = value << count;
+                carry = ((value >> (64 - count)) & 1ull) != 0;
+            } else if (modrm.reg == 5) {
+                result = value >> count;
+                carry = ((value >> (count - 1)) & 1ull) != 0;
+            } else {
+                result = static_cast<std::uint64_t>(static_cast<std::int64_t>(value) >> count);
+                carry = ((value >> (count - 1)) & 1ull) != 0;
+            }
+            if (!writeModRMR64(modrm, rex, result)) return false;
+            rflags_ &= ~(CarryFlag | ZeroFlag | SignFlag | OverflowFlag);
+            if (carry) rflags_ |= CarryFlag;
+            if (result == 0) rflags_ |= ZeroFlag;
+            if (result & (1ull << 63)) rflags_ |= SignFlag;
+            if (count == 1) {
+                bool overflow = false;
+                if (modrm.reg == 4) overflow = ((result >> 63) & 1ull) != (carry ? 1ull : 0ull);
+                else if (modrm.reg == 5) overflow = (original >> 63) != 0;
+                if (overflow) rflags_ |= OverflowFlag;
             }
             return true;
         }
@@ -306,11 +391,32 @@ bool CPU::step() {
         return true;
     }
 
-    if (opcode == 0x74 || opcode == 0x75) {
+    // Short conditional branches.
+    if ((opcode & 0xF0) == 0x70) {
         std::uint8_t displacement = 0;
         if (!fetch8(displacement)) return false;
-        const bool zero = (rflags_ & ZeroFlag) != 0;
-        const bool take = opcode == 0x74 ? zero : !zero;
+        const bool cf = (rflags_ & CarryFlag) != 0;
+        const bool zf = (rflags_ & ZeroFlag) != 0;
+        const bool sf = (rflags_ & SignFlag) != 0;
+        const bool of = (rflags_ & OverflowFlag) != 0;
+        bool take = false;
+        switch (opcode) {
+            case 0x70: take = of; break;                 // JO
+            case 0x71: take = !of; break;                // JNO
+            case 0x72: take = cf; break;                 // JC/JB
+            case 0x73: take = !cf; break;                // JNC/JAE
+            case 0x74: take = zf; break;                 // JE/JZ
+            case 0x75: take = !zf; break;                // JNE/JNZ
+            case 0x76: take = cf || zf; break;           // JBE
+            case 0x77: take = !cf && !zf; break;         // JA
+            case 0x78: take = sf; break;                 // JS
+            case 0x79: take = !sf; break;                // JNS
+            case 0x7C: take = sf != of; break;           // JL
+            case 0x7D: take = sf == of; break;           // JGE
+            case 0x7E: take = zf || (sf != of); break;   // JLE
+            case 0x7F: take = !zf && (sf == of); break;  // JG
+            default: return fail("unsupported conditional branch");
+        }
         if (take) rip_ += static_cast<std::int64_t>(static_cast<std::int8_t>(displacement));
         return true;
     }
