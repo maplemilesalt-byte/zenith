@@ -2,10 +2,9 @@
 #include "memory/guest_memory.h"
 
 #include <cstdint>
+#include <iostream>
 
-CPU::CPU(GuestMemory& memory) : memory_(memory) {
-    reset();
-}
+CPU::CPU(GuestMemory& memory) : memory_(memory) { reset(); }
 
 void CPU::reset() {
     registers_.fill(0);
@@ -20,7 +19,6 @@ std::uint64_t CPU::rip() const { return rip_; }
 void CPU::setRip(std::uint64_t value) { rip_ = value; }
 std::uint64_t CPU::rflags() const { return rflags_; }
 const char* CPU::lastError() const { return lastError_; }
-
 bool CPU::fail(const char* message) { lastError_ = message; return false; }
 
 bool CPU::fetch8(std::uint8_t& value) {
@@ -64,7 +62,6 @@ bool CPU::resolveModRMAddress(const ModRM& modrm, std::uint8_t rex, std::uint64_
         const std::uint64_t scale = 1ull << scaleBits;
         const bool hasIndex = !(indexBits == 4 && (rex & 0x2) == 0);
         const auto indexReg = extendedRegister(indexBits, (rex >> 1) & 0x1);
-
         std::int64_t displacement = 0;
         bool hasBase = true;
         if (modrm.mod == 0 && baseBits == 5) {
@@ -81,7 +78,6 @@ bool CPU::resolveModRMAddress(const ModRM& modrm, std::uint8_t rex, std::uint64_
             if (!fetch32(raw)) return false;
             displacement = static_cast<std::int32_t>(raw);
         }
-
         std::int64_t effective = displacement;
         if (hasBase) {
             const auto baseReg = extendedRegister(baseBits, rex & 0x1);
@@ -110,7 +106,6 @@ bool CPU::resolveModRMAddress(const ModRM& modrm, std::uint8_t rex, std::uint64_
         if (!fetch32(raw)) return false;
         displacement = static_cast<std::int32_t>(raw);
     }
-
     const auto baseReg = extendedRegister(modrm.rm, rex & 0x1);
     address = static_cast<std::uint64_t>(static_cast<std::int64_t>(registers_[baseReg]) + displacement);
     return true;
@@ -118,8 +113,7 @@ bool CPU::resolveModRMAddress(const ModRM& modrm, std::uint8_t rex, std::uint64_
 
 bool CPU::readModRMR8(const ModRM& modrm, std::uint8_t rex, std::uint8_t& value) {
     if (modrm.mod == 3) {
-        const auto reg = extendedRegister(modrm.rm, rex & 0x1);
-        value = static_cast<std::uint8_t>(registers_[reg]);
+        value = static_cast<std::uint8_t>(registers_[extendedRegister(modrm.rm, rex & 0x1)]);
         return true;
     }
     std::uint64_t address = 0;
@@ -130,8 +124,7 @@ bool CPU::readModRMR8(const ModRM& modrm, std::uint8_t rex, std::uint8_t& value)
 
 bool CPU::readModRMR16(const ModRM& modrm, std::uint8_t rex, std::uint16_t& value) {
     if (modrm.mod == 3) {
-        const auto reg = extendedRegister(modrm.rm, rex & 0x1);
-        value = static_cast<std::uint16_t>(registers_[reg]);
+        value = static_cast<std::uint16_t>(registers_[extendedRegister(modrm.rm, rex & 0x1)]);
         return true;
     }
     std::uint64_t address = 0;
@@ -202,14 +195,12 @@ bool CPU::step() {
         registers_[extendedRegister(opcode - 0xB8, rex & 0x1)] = immediate;
         return true;
     }
-
     if ((rex & 0x8) && opcode >= 0xB8 && opcode <= 0xBF) {
         std::uint64_t immediate = 0;
         if (!fetch64(immediate)) return false;
         registers_[extendedRegister(opcode - 0xB8, rex & 0x1)] = immediate;
         return true;
     }
-
     if (opcode >= 0x50 && opcode <= 0x57) {
         const auto reg = extendedRegister(opcode - 0x50, rex & 0x1);
         const std::uint64_t newRsp = registers_[RSP] - 8;
@@ -217,7 +208,6 @@ bool CPU::step() {
         registers_[RSP] = newRsp;
         return true;
     }
-
     if (opcode >= 0x58 && opcode <= 0x5F) {
         const auto reg = extendedRegister(opcode - 0x58, rex & 0x1);
         const std::uint64_t oldRsp = registers_[RSP];
@@ -241,7 +231,6 @@ bool CPU::step() {
             registers_[reg] = address;
             return true;
         }
-
         if (opcode == 0x89 || opcode == 0x8B) {
             std::uint8_t rawModRM = 0;
             if (!fetch8(rawModRM)) return false;
@@ -254,11 +243,22 @@ bool CPU::step() {
             registers_[reg] = value;
             return true;
         }
-
-        // MOVZX/MOVSX r64, r/m8/r/m16.
         if (opcode == 0x0F) {
             std::uint8_t opcode2 = 0;
             if (!fetch8(opcode2)) return false;
+            if (opcode2 == 0x05) {
+                // Minimal Linux x86-64 syscall support: write(1, buf, len).
+                if (registers_[RAX] != 1) return fail("unsupported syscall");
+                if (registers_[RDI] != 1) return fail("unsupported write file descriptor");
+                for (std::uint64_t i = 0; i < registers_[RDX]; ++i) {
+                    std::uint8_t byte = 0;
+                    if (!memory_.read8(registers_[RSI] + i, byte)) return fail("syscall write memory read failed");
+                    std::cout.put(static_cast<char>(byte));
+                }
+                std::cout.flush();
+                registers_[RAX] = registers_[RDX];
+                return true;
+            }
             if (opcode2 == 0xB6 || opcode2 == 0xB7 || opcode2 == 0xBE || opcode2 == 0xBF) {
                 std::uint8_t rawModRM = 0;
                 if (!fetch8(rawModRM)) return false;
@@ -268,23 +268,21 @@ bool CPU::step() {
                 if (opcode2 == 0xB6 || opcode2 == 0xBE) {
                     std::uint8_t value = 0;
                     if (!readModRMR8(modrm, rex, value)) return false;
-                    registers_[reg] = (opcode2 == 0xB6)
+                    registers_[reg] = opcode2 == 0xB6
                         ? static_cast<std::uint64_t>(value)
                         : static_cast<std::uint64_t>(static_cast<std::int64_t>(static_cast<std::int8_t>(value)));
                 } else {
                     std::uint16_t value = 0;
                     if (!readModRMR16(modrm, rex, value)) return false;
-                    registers_[reg] = (opcode2 == 0xB7)
+                    registers_[reg] = opcode2 == 0xB7
                         ? static_cast<std::uint64_t>(value)
                         : static_cast<std::uint64_t>(static_cast<std::int64_t>(static_cast<std::int16_t>(value)));
                 }
                 return true;
             }
         }
-
-        if (opcode == 0x01 || opcode == 0x11 || opcode == 0x21 ||
-            opcode == 0x09 || opcode == 0x19 || opcode == 0x29 ||
-            opcode == 0x31 || opcode == 0x39 || opcode == 0x85) {
+        if (opcode == 0x01 || opcode == 0x11 || opcode == 0x21 || opcode == 0x09 ||
+            opcode == 0x19 || opcode == 0x29 || opcode == 0x31 || opcode == 0x39 || opcode == 0x85) {
             std::uint8_t rawModRM = 0;
             if (!fetch8(rawModRM)) return false;
             ModRM modrm;
@@ -294,7 +292,6 @@ bool CPU::step() {
             if (!readModRMR64(modrm, rex, lhs)) return false;
             const auto rhs = registers_[reg];
             const auto carry = (rflags_ & CarryFlag) ? 1ull : 0ull;
-
             if (opcode == 0x01) {
                 const auto result = lhs + rhs;
                 if (!writeModRMR64(modrm, rex, result)) return false;
@@ -306,9 +303,7 @@ bool CPU::step() {
                 if (result < lhs || (carry && result == lhs)) rflags_ |= CarryFlag;
                 if (result == 0) rflags_ |= ZeroFlag;
                 if (result & (1ull << 63)) rflags_ |= SignFlag;
-                const bool a = (lhs >> 63) != 0;
-                const bool b = (rhs >> 63) != 0;
-                const bool r = (result >> 63) != 0;
+                const bool a = (lhs >> 63) != 0, b = (rhs >> 63) != 0, r = (result >> 63) != 0;
                 if (a == b && a != r) rflags_ |= OverflowFlag;
             } else if (opcode == 0x29) {
                 const auto result = lhs - rhs;
@@ -321,27 +316,19 @@ bool CPU::step() {
                 if (lhs < rhs || (carry && lhs - rhs == 0)) rflags_ |= CarryFlag;
                 if (result == 0) rflags_ |= ZeroFlag;
                 if (result & (1ull << 63)) rflags_ |= SignFlag;
-                const bool a = (lhs >> 63) != 0;
-                const bool b = (rhs >> 63) != 0;
-                const bool r = (result >> 63) != 0;
+                const bool a = (lhs >> 63) != 0, b = (rhs >> 63) != 0, r = (result >> 63) != 0;
                 if (a != b && a != r) rflags_ |= OverflowFlag;
             } else if (opcode == 0x39) {
                 updateSubFlags(lhs, rhs, lhs - rhs);
             } else {
-                const auto result = (opcode == 0x21) ? (lhs & rhs) :
-                                    (opcode == 0x09) ? (lhs | rhs) :
-                                    (opcode == 0x31) ? (lhs ^ rhs) :
-                                    (lhs & rhs);
-                if (opcode != 0x85) {
-                    if (!writeModRMR64(modrm, rex, result)) return false;
-                }
+                const auto result = opcode == 0x21 ? (lhs & rhs) : opcode == 0x09 ? (lhs | rhs) : opcode == 0x31 ? (lhs ^ rhs) : (lhs & rhs);
+                if (opcode != 0x85 && !writeModRMR64(modrm, rex, result)) return false;
                 rflags_ &= ~(CarryFlag | OverflowFlag | ZeroFlag | SignFlag);
                 if (result == 0) rflags_ |= ZeroFlag;
                 if (result & (1ull << 63)) rflags_ |= SignFlag;
             }
             return true;
         }
-
         if (opcode == 0xFF || opcode == 0xF7) {
             std::uint8_t rawModRM = 0;
             if (!fetch8(rawModRM)) return false;
@@ -353,8 +340,7 @@ bool CPU::step() {
             if (opcode == 0xFF && (modrm.reg == 0 || modrm.reg == 1)) {
                 const auto result = modrm.reg == 0 ? value + 1 : value - 1;
                 if (!writeModRMR64(modrm, rex, result)) return false;
-                if (modrm.reg == 0) updateAddFlags(value, 1, result);
-                else updateSubFlags(value, 1, result);
+                if (modrm.reg == 0) updateAddFlags(value, 1, result); else updateSubFlags(value, 1, result);
                 rflags_ = (rflags_ & ~CarryFlag) | oldCarry;
                 return true;
             }
@@ -367,7 +353,6 @@ bool CPU::step() {
             }
             return fail("unsupported unary opcode");
         }
-
         if (opcode == 0xC1 || opcode == 0xD3) {
             std::uint8_t rawModRM = 0;
             if (!fetch8(rawModRM)) return false;
@@ -375,11 +360,8 @@ bool CPU::step() {
             decodeModRM(rawModRM, modrm);
             if (modrm.reg != 4 && modrm.reg != 5 && modrm.reg != 7) return fail("unsupported shift opcode");
             std::uint8_t count = 0;
-            if (opcode == 0xC1) {
-                if (!fetch8(count)) return false;
-            } else {
-                count = static_cast<std::uint8_t>(registers_[RCX] & 0xFF);
-            }
+            if (opcode == 0xC1) { if (!fetch8(count)) return false; }
+            else count = static_cast<std::uint8_t>(registers_[RCX] & 0xFF);
             count &= 0x3F;
             std::uint64_t value = 0;
             if (!readModRMR64(modrm, rex, value)) return false;
@@ -387,16 +369,9 @@ bool CPU::step() {
             const auto original = value;
             std::uint64_t result = 0;
             bool carry = false;
-            if (modrm.reg == 4) {
-                result = value << count;
-                carry = ((value >> (64 - count)) & 1ull) != 0;
-            } else if (modrm.reg == 5) {
-                result = value >> count;
-                carry = ((value >> (count - 1)) & 1ull) != 0;
-            } else {
-                result = static_cast<std::uint64_t>(static_cast<std::int64_t>(value) >> count);
-                carry = ((value >> (count - 1)) & 1ull) != 0;
-            }
+            if (modrm.reg == 4) { result = value << count; carry = ((value >> (64 - count)) & 1ull) != 0; }
+            else if (modrm.reg == 5) { result = value >> count; carry = ((value >> (count - 1)) & 1ull) != 0; }
+            else { result = static_cast<std::uint64_t>(static_cast<std::int64_t>(value) >> count); carry = ((value >> (count - 1)) & 1ull) != 0; }
             if (!writeModRMR64(modrm, rex, result)) return false;
             rflags_ &= ~(CarryFlag | ZeroFlag | SignFlag | OverflowFlag);
             if (carry) rflags_ |= CarryFlag;
@@ -423,7 +398,6 @@ bool CPU::step() {
         rip_ = target;
         return true;
     }
-
     if (opcode == 0xC3) {
         const auto oldRsp = registers_[RSP];
         std::uint64_t returnAddress = 0;
@@ -432,14 +406,12 @@ bool CPU::step() {
         rip_ = returnAddress;
         return true;
     }
-
     if (opcode == 0xEB) {
         std::uint8_t displacement = 0;
         if (!fetch8(displacement)) return false;
         rip_ += static_cast<std::int64_t>(static_cast<std::int8_t>(displacement));
         return true;
     }
-
     if ((opcode & 0xF0) == 0x70) {
         std::uint8_t displacement = 0;
         if (!fetch8(displacement)) return false;
@@ -449,25 +421,17 @@ bool CPU::step() {
         const bool of = (rflags_ & OverflowFlag) != 0;
         bool take = false;
         switch (opcode) {
-            case 0x70: take = of; break;
-            case 0x71: take = !of; break;
-            case 0x72: take = cf; break;
-            case 0x73: take = !cf; break;
-            case 0x74: take = zf; break;
-            case 0x75: take = !zf; break;
-            case 0x76: take = cf || zf; break;
-            case 0x77: take = !cf && !zf; break;
-            case 0x78: take = sf; break;
-            case 0x79: take = !sf; break;
-            case 0x7C: take = sf != of; break;
-            case 0x7D: take = sf == of; break;
-            case 0x7E: take = zf || (sf != of); break;
-            case 0x7F: take = !zf && (sf == of); break;
+            case 0x70: take = of; break; case 0x71: take = !of; break;
+            case 0x72: take = cf; break; case 0x73: take = !cf; break;
+            case 0x74: take = zf; break; case 0x75: take = !zf; break;
+            case 0x76: take = cf || zf; break; case 0x77: take = !cf && !zf; break;
+            case 0x78: take = sf; break; case 0x79: take = !sf; break;
+            case 0x7C: take = sf != of; break; case 0x7D: take = sf == of; break;
+            case 0x7E: take = zf || (sf != of); break; case 0x7F: take = !zf && (sf == of); break;
             default: return fail("unsupported conditional branch");
         }
         if (take) rip_ += static_cast<std::int64_t>(static_cast<std::int8_t>(displacement));
         return true;
     }
-
     return fail("unsupported opcode");
 }
