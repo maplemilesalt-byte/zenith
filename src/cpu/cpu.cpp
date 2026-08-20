@@ -259,6 +259,35 @@ bool CPU::step() {
             }
             return true;
         }
+
+        // AND / OR / XOR r/m64, r64.
+        // These logical operations clear CF/OF and update ZF/SF from the result.
+        if (opcode == 0x21 || opcode == 0x09 || opcode == 0x31) {
+            std::uint8_t rawModRM = 0;
+            if (!fetch8(rawModRM)) return false;
+            ModRM modrm;
+            decodeModRM(rawModRM, modrm);
+            const auto reg = extendedRegister(modrm.reg, (rex >> 2) & 0x1);
+            std::uint64_t lhs = 0;
+            if (!readModRMR64(modrm, rex, lhs)) return false;
+            const auto rhs = registers_[reg];
+
+            std::uint64_t result = 0;
+            if (opcode == 0x21) {
+                result = lhs & rhs;
+            } else if (opcode == 0x09) {
+                result = lhs | rhs;
+            } else {
+                result = lhs ^ rhs;
+            }
+
+            if (!writeModRMR64(modrm, rex, result)) return false;
+
+            rflags_ &= ~(CarryFlag | OverflowFlag | ZeroFlag | SignFlag);
+            if (result == 0) rflags_ |= ZeroFlag;
+            if (result & (1ull << 63)) rflags_ |= SignFlag;
+            return true;
+        }
     }
 
     if (opcode == 0xE8) {
