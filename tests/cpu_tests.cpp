@@ -139,13 +139,44 @@ int main() {
     assert(memory.read64(0x8000, stored));
     assert(stored == 0x0102030405060708ull);
 
-    // Unsupported SIB addressing must fail explicitly rather than corrupt memory.
+    // SIB: MOV RAX, [RBX + RCX*4 + 8].
+    assert(memory.write64(0x8028, 0xDEADBEEFCAFEBABEull));
+    cpu.setRegister(CPU::RBX, 0x8000);
+    cpu.setRegister(CPU::RCX, 8);
     cpu.setRip(0x1090);
     assert(memory.write8(0x1090, 0x48));
     assert(memory.write8(0x1091, 0x8B));
-    assert(memory.write8(0x1092, 0x04)); // r/m=100 => SIB follows
-    assert(!cpu.step());
-    assert(cpu.lastError() != nullptr);
+    assert(memory.write8(0x1092, 0x44)); // mod=01, reg=RAX, r/m=100 => SIB
+    assert(memory.write8(0x1093, 0x8B)); // scale=2 (x4), index=RCX, base=RBX
+    assert(memory.write8(0x1094, 0x08)); // disp8 = 8
+    assert(cpu.step());
+    assert(cpu.getRegister(CPU::RAX) == 0xDEADBEEFCAFEBABEull);
+
+    // SIB: MOV [R12 + R13*2], RAX using REX.B/X.
+    cpu.setRegister(CPU::R12, 0x8040);
+    cpu.setRegister(CPU::R13, 4);
+    cpu.setRegister(CPU::RAX, 0x1122334455667788ull);
+    cpu.setRip(0x1095);
+    assert(memory.write8(0x1095, 0x4B)); // REX.WXB
+    assert(memory.write8(0x1096, 0x89));
+    assert(memory.write8(0x1097, 0x04)); // mod=00, reg=RAX, r/m=100 => SIB
+    assert(memory.write8(0x1098, 0x6C)); // scale=2, index=R13, base=R12
+    assert(memory.write64(0x8048, 0));
+    assert(cpu.step());
+    assert(memory.read64(0x8048, stored));
+    assert(stored == 0x1122334455667788ull);
+
+    // SIB with no base: MOV RAX, [RCX*8 + disp32].
+    assert(memory.write64(0x8060, 0xA1B2C3D4E5F60718ull));
+    cpu.setRegister(CPU::RCX, 4);
+    cpu.setRip(0x1099);
+    assert(memory.write8(0x1099, 0x48));
+    assert(memory.write8(0x109A, 0x8B));
+    assert(memory.write8(0x109B, 0x04)); // mod=00, r/m=100
+    assert(memory.write8(0x109C, 0xCD)); // scale=8, index=RCX, base=101(no base)
+    assert(memory.write32(0x109D, 0x8040));
+    assert(cpu.step());
+    assert(cpu.getRegister(CPU::RAX) == 0xA1B2C3D4E5F60718ull);
 
     // Unsupported instruction must fail instead of silently executing.
     cpu.setRip(0x10A0);
