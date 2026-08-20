@@ -34,10 +34,20 @@ public:
     const char* lastError() const;
 
 private:
+    struct ModRM {
+        std::uint8_t mod = 0;
+        std::uint8_t reg = 0;
+        std::uint8_t rm = 0;
+    };
+
     bool fetch8(std::uint8_t& value);
     bool fetch32(std::uint32_t& value);
     bool fetch64(std::uint64_t& value);
-    bool decodeModRM(std::uint8_t modrm, std::uint8_t& reg, std::uint8_t& rm) const;
+    bool decodeModRM(std::uint8_t value, ModRM& modrm) const;
+    bool readModRMR64(const ModRM& modrm, std::uint8_t rex, std::uint64_t& value);
+    bool writeModRMR64(const ModRM& modrm, std::uint8_t rex, std::uint64_t value);
+    bool resolveModRMAddress(const ModRM& modrm, std::uint8_t rex, std::uint64_t& address);
+    std::size_t extendedRegister(std::uint8_t index, std::uint8_t rexBit) const;
     void updateAddFlags(std::uint64_t lhs, std::uint64_t rhs, std::uint64_t result);
     void updateSubFlags(std::uint64_t lhs, std::uint64_t rhs, std::uint64_t result);
     bool fail(const char* message);
