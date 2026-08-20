@@ -23,6 +23,7 @@ public:
     explicit GuestMemory(std::uint64_t physicalSize);
     bool map(std::uint64_t virtualAddress, std::uint64_t physicalAddress,
              std::uint64_t size, Permissions permissions);
+    bool protect(std::uint64_t virtualAddress, std::uint64_t size, Permissions permissions);
     bool unmap(std::uint64_t virtualAddress, std::uint64_t size);
     bool read8(std::uint64_t address, std::uint8_t& value) const;
     bool read16(std::uint64_t address, std::uint16_t& value) const;
