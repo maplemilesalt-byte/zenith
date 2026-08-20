@@ -8,7 +8,8 @@
 int main() {
     using P = GuestMemory::Permissions;
     GuestMemory memory(64ull * 1024ull * 1024ull);
-    assert(memory.map(0x1000, 0, GuestMemory::PageSize, P::Read | P::Write | P::Execute));
+    assert(memory.map(0x1000, 0, GuestMemory::PageSize * 4, P::Read | P::Write | P::Execute));
+    assert(memory.map(0x8000, 0x4000, GuestMemory::PageSize, P::Read | P::Write));
 
     CPU cpu(memory);
     cpu.setRip(0x1000);
@@ -66,9 +67,35 @@ int main() {
     assert(cpu.step());
     assert(cpu.rip() == 0x1026);
 
-    // Unsupported instruction must fail instead of silently executing.
+    // PUSH/POP using the guest stack.
+    cpu.setRegister(CPU::RSP, 0x8010);
+    cpu.setRegister(CPU::RAX, 0x1122334455667788ull);
     cpu.setRip(0x1030);
-    assert(memory.write8(0x1030, 0xCC));
+    assert(memory.write8(0x1030, 0x50)); // push rax
+    assert(memory.write8(0x1031, 0x59)); // pop rcx
+    assert(cpu.step());
+    assert(cpu.getRegister(CPU::RSP) == 0x8008);
+    assert(cpu.step());
+    assert(cpu.getRegister(CPU::RCX) == 0x1122334455667788ull);
+    assert(cpu.getRegister(CPU::RSP) == 0x8010);
+
+    // CALL/RET: call from 0x1040 to 0x1048; function returns to 0x1045.
+    cpu.setRegister(CPU::RSP, 0x8010);
+    cpu.setRip(0x1040);
+    assert(memory.write8(0x1040, 0xE8));
+    assert(memory.write32(0x1041, 3));
+    assert(memory.write8(0x1045, 0x90));
+    assert(memory.write8(0x1048, 0xC3));
+    assert(cpu.step());
+    assert(cpu.rip() == 0x1048);
+    assert(cpu.getRegister(CPU::RSP) == 0x8008);
+    assert(cpu.step());
+    assert(cpu.rip() == 0x1045);
+    assert(cpu.getRegister(CPU::RSP) == 0x8010);
+
+    // Unsupported instruction must fail instead of silently executing.
+    cpu.setRip(0x1050);
+    assert(memory.write8(0x1050, 0xCC));
     assert(!cpu.step());
     assert(cpu.lastError() != nullptr);
 
