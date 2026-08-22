@@ -13,6 +13,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 find_program(ZENITH_CLANG clang REQUIRED)
 find_program(ZENITH_LLD ld.lld REQUIRED)
+find_program(ZENITH_ZIP zip REQUIRED)
 set(ZENITH_HELLO_OBJ ${CMAKE_CURRENT_BINARY_DIR}/helloworld.o)
 set(ZENITH_HELLO_ELF ${CMAKE_CURRENT_BINARY_DIR}/helloworld.elf)
 add_custom_command(OUTPUT ${ZENITH_HELLO_OBJ}
@@ -35,6 +36,21 @@ add_custom_command(OUTPUT ${ZENITH_GRAPHICS_ELF}
 add_custom_target(zenith_graphics ALL DEPENDS ${ZENITH_GRAPHICS_ELF})
 add_dependencies(zenith zenith_graphics)
 add_custom_target(graphics DEPENDS ${ZENITH_GRAPHICS_ELF})
+set(ZENITH_APPX_OBJ ${CMAKE_CURRENT_BINARY_DIR}/ZenithPlatformer.o)
+set(ZENITH_APPX_ELF ${CMAKE_CURRENT_BINARY_DIR}/ZenithPlatformer.elf)
+set(ZENITH_APPX ${CMAKE_CURRENT_BINARY_DIR}/ZenithPlatformer.appx)
+add_custom_command(OUTPUT ${ZENITH_APPX_OBJ}
+ COMMAND ${ZENITH_CLANG} --target=x86_64-unknown-linux-gnu -c ${CMAKE_CURRENT_SOURCE_DIR}/examples/appx_platformer.S -o ${ZENITH_APPX_OBJ}
+ DEPENDS examples/appx_platformer.S COMMENT "Assembling x86-64 Zenith APPX platformer" VERBATIM)
+add_custom_command(OUTPUT ${ZENITH_APPX_ELF}
+ COMMAND ${ZENITH_LLD} -m elf_x86_64 -T ${CMAKE_CURRENT_SOURCE_DIR}/examples/helloworld.ld -o ${ZENITH_APPX_ELF} ${ZENITH_APPX_OBJ}
+ DEPENDS ${ZENITH_APPX_OBJ} examples/helloworld.ld COMMENT "Linking Zenith APPX platformer ELF" VERBATIM)
+add_custom_command(OUTPUT ${ZENITH_APPX}
+ COMMAND ${ZENITH_ZIP} -q -j ${ZENITH_APPX} ${CMAKE_CURRENT_SOURCE_DIR}/examples/AppxManifest.xml ${ZENITH_APPX_ELF}
+ DEPENDS ${ZENITH_APPX_ELF} examples/AppxManifest.xml
+ COMMENT "Packaging Zenith Platformer APPX" VERBATIM)
+add_custom_target(zenith_appx_platformer ALL DEPENDS ${ZENITH_APPX})
+add_custom_target(appx_platformer DEPENDS ${ZENITH_APPX})
 enable_testing()
 add_executable(zenith_memory_tests tests/guest_memory_tests.cpp src/memory/guest_memory.cpp)
 target_include_directories(zenith_memory_tests PRIVATE src)
