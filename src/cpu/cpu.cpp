@@ -2,6 +2,7 @@
 #include "memory/guest_memory.h"
 
 #include <cstdint>
+#include <iostream>
 
 CPU::CPU(GuestMemory& memory) : memory_(memory) {
     reset();
@@ -12,6 +13,8 @@ void CPU::reset() {
     rip_ = 0;
     rflags_ = 0;
     lastError_ = nullptr;
+    halted_ = false;
+    exitCode_ = 0;
 }
 
 std::uint64_t CPU::getRegister(Register reg) const { return registers_[static_cast<std::size_t>(reg)]; }
@@ -20,6 +23,8 @@ std::uint64_t CPU::rip() const { return rip_; }
 void CPU::setRip(std::uint64_t value) { rip_ = value; }
 std::uint64_t CPU::rflags() const { return rflags_; }
 const char* CPU::lastError() const { return lastError_; }
+bool CPU::halted() const { return halted_; }
+std::int64_t CPU::exitCode() const { return exitCode_; }
 
 bool CPU::fail(const char* message) { lastError_ = message; return false; }
 
@@ -160,7 +165,42 @@ void CPU::updateSubFlags(std::uint64_t lhs, std::uint64_t rhs, std::uint64_t res
     if (lhsSign != rhsSign && lhsSign != resultSign) rflags_ |= OverflowFlag;
 }
 
+bool CPU::handleSyscall() {
+    // Zenith currently exposes a tiny Linux-like console ABI to guest ELFs.
+    // syscall 1 = write(fd, buffer, length), syscall 60 = exit(code).
+    const auto number = registers_[RAX];
+
+    if (number == 1) {
+        const auto fd = registers_[RDI];
+        const auto address = registers_[RSI];
+        const auto length = registers_[RDX];
+        if (fd != 1 && fd != 2) {
+            registers_[RAX] = static_cast<std::uint64_t>(-9ll);
+            return true;
+        }
+        if (length > 1024 * 1024) return fail("guest write is too large");
+
+        for (std::uint64_t i = 0; i < length; ++i) {
+            std::uint8_t byte = 0;
+            if (!memory_.read8(address + i, byte)) return fail("guest write read failed");
+            std::cout.put(static_cast<char>(byte));
+        }
+        std::cout.flush();
+        registers_[RAX] = length;
+        return true;
+    }
+
+    if (number == 60) {
+        exitCode_ = static_cast<std::int64_t>(registers_[RDI]);
+        halted_ = true;
+        return true;
+    }
+
+    return fail("unsupported guest syscall");
+}
+
 bool CPU::step() {
+    if (halted_) return true;
     lastError_ = nullptr;
     std::uint8_t opcode = 0;
     if (!fetch8(opcode)) return false;
@@ -261,7 +301,6 @@ bool CPU::step() {
         }
 
         // AND / OR / XOR r/m64, r64.
-        // These logical operations clear CF/OF and update ZF/SF from the result.
         if (opcode == 0x21 || opcode == 0x09 || opcode == 0x31) {
             std::uint8_t rawModRM = 0;
             if (!fetch8(rawModRM)) return false;
@@ -273,21 +312,24 @@ bool CPU::step() {
             const auto rhs = registers_[reg];
 
             std::uint64_t result = 0;
-            if (opcode == 0x21) {
-                result = lhs & rhs;
-            } else if (opcode == 0x09) {
-                result = lhs | rhs;
-            } else {
-                result = lhs ^ rhs;
-            }
+            if (opcode == 0x21) result = lhs & rhs;
+            else if (opcode == 0x09) result = lhs | rhs;
+            else result = lhs ^ rhs;
 
             if (!writeModRMR64(modrm, rex, result)) return false;
-
             rflags_ &= ~(CarryFlag | OverflowFlag | ZeroFlag | SignFlag);
             if (result == 0) rflags_ |= ZeroFlag;
             if (result & (1ull << 63)) rflags_ |= SignFlag;
             return true;
         }
+    }
+
+    // syscall is 0F 05. It is handled by Zenith's guest syscall shim.
+    if (opcode == 0x0F) {
+        std::uint8_t second = 0;
+        if (!fetch8(second)) return false;
+        if (second == 0x05) return handleSyscall();
+        return fail("unsupported 0F opcode");
     }
 
     if (opcode == 0xE8) {
