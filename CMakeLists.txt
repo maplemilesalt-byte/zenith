@@ -25,6 +25,7 @@ if(ZENITH_ENABLE_WAYLAND)
       COMMAND ${WAYLAND_SCANNER} client-header ${XDG_XML} ${XDG_HEADER}
       COMMAND ${WAYLAND_SCANNER} private-code ${XDG_XML} ${XDG_CODE}
       DEPENDS ${XDG_XML})
+    set_source_files_properties(${XDG_CODE} PROPERTIES LANGUAGE CXX)
     add_library(zenith_wayland_protocol STATIC ${XDG_CODE} ${XDG_HEADER})
     target_include_directories(zenith_wayland_protocol PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
     target_link_libraries(zenith_wayland_protocol PUBLIC ${WAYLAND_LIBRARIES})
