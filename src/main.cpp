@@ -33,17 +33,30 @@ int main(int argc, char** argv) {
 
         CPU cpu(memory);
         cpu.setRip(result.entryPoint);
-        // The current interpreter has no OS/syscall layer yet, so --elf is a
-        // loader/CPU smoke test. Execute a small bounded number of instructions.
-        constexpr int steps = 3;
-        for (int i = 0; i < steps; ++i) {
+
+        // Execute the guest until it calls the Zenith exit syscall or hits the
+        // safety limit. This is now a real ELF execution path, not a 3-step
+        // loader smoke test.
+        constexpr std::uint64_t maxInstructions = 1'000'000;
+        std::uint64_t executed = 0;
+        while (!cpu.halted() && executed < maxInstructions) {
             if (!cpu.step()) {
-                std::cerr << "CPU error after ELF load: " << cpu.lastError() << '\n';
+                std::cerr << "CPU error after ELF load at RIP 0x"
+                          << std::hex << cpu.rip() << ": " << cpu.lastError() << '\n';
                 return 1;
             }
+            ++executed;
         }
-        std::cout << "ELF CPU smoke test: RAX = " << cpu.getRegister(CPU::RAX) << '\n';
-        return 0;
+
+        if (!cpu.halted()) {
+            std::cerr << "ELF execution stopped after " << std::dec
+                      << maxInstructions << " instructions (possible infinite loop).\n";
+            return 1;
+        }
+
+        std::cout << "\nELF exited with code " << std::dec << cpu.exitCode()
+                  << " after " << executed << " instructions.\n";
+        return static_cast<int>(cpu.exitCode());
     }
 
     constexpr std::uint64_t codeAddress = 0x1000;
