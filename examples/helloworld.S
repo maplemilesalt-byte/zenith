@@ -3,8 +3,8 @@
 .type _start, @function
 
 _start:
-    # x86-64 AT&T syntax. CMake invokes Clang with an explicit x86-64 target,
-    # even when the host (such as Termux) is ARM64.
+    # Tiny x86-64 guest program using only instructions currently implemented
+    # by the Zenith CPU interpreter.
     mov $1, %eax
     mov $1, %edi
     lea message(%rip), %rsi
@@ -12,7 +12,7 @@ _start:
     syscall
 
     mov $60, %eax
-    xor %edi, %edi
+    mov $0, %edi
     syscall
 
 .section .rodata
