@@ -3,10 +3,71 @@
 #include <X11/Xutil.h>
 #include <cstring>
 #include <stdexcept>
-struct XenithWindow::Impl { Display* display=nullptr; ::Window window=0; GC gc=nullptr; XImage* image=nullptr; int width=0,height=0; bool open=false,fileMenu=false,importRequested=false; };
-XenithWindow::XenithWindow(int width,int height,const char* title):impl_(new Impl{}){impl_->width=width;impl_->height=height;input_.reset();impl_->display=XOpenDisplay(nullptr);if(!impl_->display){delete impl_;impl_=nullptr;throw std::runtime_error("Could not open X11 display");}const int screen=DefaultScreen(impl_->display);impl_->window=XCreateSimpleWindow(impl_->display,RootWindow(impl_->display,screen),0,0,(unsigned)width,(unsigned)height,1,BlackPixel(impl_->display,screen),BlackPixel(impl_->display,screen));XStoreName(impl_->display,impl_->window,title);XSelectInput(impl_->display,impl_->window,ExposureMask|KeyPressMask|KeyReleaseMask|ButtonPressMask|StructureNotifyMask);XMapWindow(impl_->display,impl_->window);impl_->gc=XCreateGC(impl_->display,impl_->window,0,nullptr);impl_->open=true;}
-XenithWindow::~XenithWindow(){if(!impl_)return;if(impl_->image){impl_->image->data=nullptr;XDestroyImage(impl_->image);}if(impl_->gc)XFreeGC(impl_->display,impl_->gc);if(impl_->window)XDestroyWindow(impl_->display,impl_->window);if(impl_->display)XCloseDisplay(impl_->display);delete impl_;}
-bool XenithWindow::isOpen()const{return impl_&&impl_->open;}
-void XenithWindow::pollEvents(){if(!impl_)return;while(XPending(impl_->display)){XEvent e{};XNextEvent(impl_->display,&e);if(e.type==DestroyNotify){impl_->open=false;continue;}if(e.type==KeyPress||e.type==KeyRelease){const bool pressed=e.type==KeyPress;const KeySym key=XLookupKeysym(&e.xkey,0);std::uint32_t mapped=0;switch(key){case XK_w:case XK_W:mapped=ZenithKey::W;break;case XK_a:case XK_A:mapped=ZenithKey::A;break;case XK_s:case XK_S:mapped=ZenithKey::S;break;case XK_d:case XK_D:mapped=ZenithKey::D;break;case XK_Up:mapped=ZenithKey::Up;break;case XK_Down:mapped=ZenithKey::Down;break;case XK_Left:mapped=ZenithKey::Left;break;case XK_Right:mapped=ZenithKey::Right;break;case XK_space:mapped=ZenithKey::Space;break;default:break;}if(mapped)input_.setKey(mapped,pressed);continue;}if(e.type==ButtonPress&&e.xbutton.button==Button1){if(e.xbutton.y<28&&e.xbutton.x<65)impl_->fileMenu=!impl_->fileMenu;else if(impl_->fileMenu&&e.xbutton.x<230&&e.xbutton.y>=28&&e.xbutton.y<58){impl_->importRequested=true;impl_->fileMenu=false;}else impl_->fileMenu=false;}}}
-void XenithWindow::present(const std::uint32_t* pixels,int width,int height){if(!impl_||!impl_->open||!pixels||width!=impl_->width||height!=impl_->height)return;if(!impl_->image){const int depth=DefaultDepth(impl_->display,DefaultScreen(impl_->display));auto* data=new char[(std::size_t)width*height*4];impl_->image=XCreateImage(impl_->display,DefaultVisual(impl_->display,DefaultScreen(impl_->display)),depth,ZPixmap,0,data,width,height,32,0);if(!impl_->image){delete[]data;throw std::runtime_error("Could not create XImage");}}std::memcpy(impl_->image->data,pixels,(std::size_t)width*height*4);XPutImage(impl_->display,impl_->window,impl_->gc,impl_->image,0,0,0,0,(unsigned)width,(unsigned)height);XSetForeground(impl_->display,impl_->gc,0x202020);XFillRectangle(impl_->display,impl_->window,impl_->gc,0,0,impl_->width,28);XSetForeground(impl_->display,impl_->gc,0xffffff);XDrawString(impl_->display,impl_->window,impl_->gc,8,19,"File",4);XDrawString(impl_->display,impl_->window,impl_->gc,70,19,"Emulation",9);XDrawString(impl_->display,impl_->window,impl_->gc,145,19,"View",4);XDrawString(impl_->display,impl_->window,impl_->gc,190,19,"Help",4);if(impl_->fileMenu){XSetForeground(impl_->display,impl_->gc,0x303030);XFillRectangle(impl_->display,impl_->window,impl_->gc,0,28,230,30);XSetForeground(impl_->display,impl_->gc,0xffffff);XDrawString(impl_->display,impl_->window,impl_->gc,10,48,"Import ELF...",12);XDrawString(impl_->display,impl_->window,impl_->gc,120,48,"APPX (future)",13);}XFlush(impl_->display);}
-bool XenithWindow::menuImportRequested(){if(!impl_)return false;bool r=impl_->importRequested;impl_->importRequested=false;return r;}bool XenithWindow::menuBarHit(int x,int y)const{return impl_&&y<28&&x<65;}bool XenithWindow::fileMenuOpen()const{return impl_&&impl_->fileMenu;}void XenithWindow::setTitle(const std::string& title){if(impl_&&impl_->display&&impl_->window)XStoreName(impl_->display,impl_->window,title.c_str());}const InputState& XenithWindow::input()const{return input_;}
+#include <cstdlib>
+#ifdef ZENITH_HAS_WAYLAND
+#include "wayland_window.h"
+#endif
+
+struct XenithWindow::Impl {
+    Display* display=nullptr; ::Window window=0; GC gc=nullptr; XImage* image=nullptr;
+    int width=0,height=0; bool open=false,fileMenu=false,importRequested=false; bool useWayland=false;
+#ifdef ZENITH_HAS_WAYLAND
+    WaylandWindow* wayland=nullptr;
+#endif
+};
+
+XenithWindow::XenithWindow(int width,int height,const char* title):impl_(new Impl{}){
+    impl_->width=width; impl_->height=height; input_.reset();
+#ifdef ZENITH_HAS_WAYLAND
+    const char* wd=std::getenv("WAYLAND_DISPLAY"); const char* session=std::getenv("XDG_SESSION_TYPE");
+    if(wd||(session&&std::strcmp(session,"wayland")==0)){
+        try { impl_->wayland=new WaylandWindow(width,height,title,input_); impl_->useWayland=true; impl_->open=true; return; }
+        catch(const std::exception& e){ std::cerr<<"Wayland unavailable, falling back to X11: "<<e.what()<<'\n'; delete impl_->wayland; impl_->wayland=nullptr; }
+    }
+#endif
+    impl_->display=XOpenDisplay(nullptr); if(!impl_->display){delete impl_;impl_=nullptr;throw std::runtime_error("Could not open X11 display");}
+    const int screen=DefaultScreen(impl_->display); impl_->window=XCreateSimpleWindow(impl_->display,RootWindow(impl_->display,screen),0,0,(unsigned)width,(unsigned)height,1,BlackPixel(impl_->display,screen),BlackPixel(impl_->display,screen));
+    XStoreName(impl_->display,impl_->window,title); XSelectInput(impl_->display,impl_->window,ExposureMask|KeyPressMask|KeyReleaseMask|ButtonPressMask|StructureNotifyMask); XMapWindow(impl_->display,impl_->window); impl_->gc=XCreateGC(impl_->display,impl_->window,0,nullptr); impl_->open=true;
+}
+XenithWindow::~XenithWindow(){if(!impl_)return;
+#ifdef ZENITH_HAS_WAYLAND
+    if(impl_->wayland){delete impl_->wayland;impl_->wayland=nullptr;delete impl_;return;}
+#endif
+    if(impl_->image){impl_->image->data=nullptr;XDestroyImage(impl_->image);} if(impl_->gc)XFreeGC(impl_->display,impl_->gc); if(impl_->window)XDestroyWindow(impl_->display,impl_->window); if(impl_->display)XCloseDisplay(impl_->display); delete impl_;
+}
+bool XenithWindow::isOpen()const{return impl_&&impl_->open&&(
+#ifdef ZENITH_HAS_WAYLAND
+    impl_->useWayland?impl_->wayland->isOpen():
+#endif
+    true);}
+void XenithWindow::pollEvents(){if(!impl_)return;
+#ifdef ZENITH_HAS_WAYLAND
+    if(impl_->useWayland){impl_->wayland->pollEvents();impl_->open=impl_->wayland->isOpen();return;}
+#endif
+    while(XPending(impl_->display)){XEvent e{};XNextEvent(impl_->display,&e);if(e.type==DestroyNotify){impl_->open=false;continue;}if(e.type==KeyPress||e.type==KeyRelease){const bool pressed=e.type==KeyPress;const KeySym key=XLookupKeysym(&e.xkey,0);std::uint32_t mapped=0;switch(key){case XK_w:case XK_W:mapped=ZenithKey::W;break;case XK_a:case XK_A:mapped=ZenithKey::A;break;case XK_s:case XK_S:mapped=ZenithKey::S;break;case XK_d:case XK_D:mapped=ZenithKey::D;break;case XK_Up:mapped=ZenithKey::Up;break;case XK_Down:mapped=ZenithKey::Down;break;case XK_Left:mapped=ZenithKey::Left;break;case XK_Right:mapped=ZenithKey::Right;break;case XK_space:mapped=ZenithKey::Space;break;default:break;}if(mapped)input_.setKey(mapped,pressed);continue;}if(e.type==ButtonPress&&e.xbutton.button==Button1){if(e.xbutton.y<28&&e.xbutton.x<65)impl_->fileMenu=!impl_->fileMenu;else if(impl_->fileMenu&&e.xbutton.x<230&&e.xbutton.y>=28&&e.xbutton.y<58){impl_->importRequested=true;impl_->fileMenu=false;}else impl_->fileMenu=false;}}}
+void XenithWindow::present(const std::uint32_t* pixels,int width,int height){if(!impl_||!impl_->open||!pixels||width!=impl_->width||height!=impl_->height)return;
+#ifdef ZENITH_HAS_WAYLAND
+    if(impl_->useWayland){impl_->wayland->present(pixels,width,height);return;}
+#endif
+    if(!impl_->image){const int depth=DefaultDepth(impl_->display,DefaultScreen(impl_->display));auto* data=new char[(std::size_t)width*height*4);impl_->image=XCreateImage(impl_->display,DefaultVisual(impl_->display,DefaultScreen(impl_->display)),depth,ZPixmap,0,data,width,height,32,0);if(!impl_->image){delete[]data;throw std::runtime_error("Could not create XImage");}}std::memcpy(impl_->image->data,pixels,(std::size_t)width*height*4);XPutImage(impl_->display,impl_->window,impl_->gc,impl_->image,0,0,0,0,(unsigned)width,(unsigned)height);XSetForeground(impl_->display,impl_->gc,0x202020);XFillRectangle(impl_->display,impl_->window,impl_->gc,0,0,impl_->width,28);XSetForeground(impl_->display,impl_->gc,0xffffff);XDrawString(impl_->display,impl_->window,impl_->gc,8,19,"File",4);XDrawString(impl_->display,impl_->window,impl_->gc,70,19,"Emulation",9);XDrawString(impl_->display,impl_->window,impl_->gc,145,19,"View",4);XDrawString(impl_->display,impl_->window,impl_->gc,190,19,"Help",4);if(impl_->fileMenu){XSetForeground(impl_->display,impl_->gc,0x303030);XFillRectangle(impl_->display,impl_->window,impl_->gc,0,28,230,30);XSetForeground(impl_->display,impl_->gc,0xffffff);XDrawString(impl_->display,impl_->window,impl_->gc,10,48,"Import ELF...",12);XDrawString(impl_->display,impl_->window,impl_->gc,120,48,"APPX (future)",13);}XFlush(impl_->display);}
+bool XenithWindow::menuImportRequested(){if(!impl_)return false;
+#ifdef ZENITH_HAS_WAYLAND
+    if(impl_->useWayland)return impl_->wayland->menuImportRequested();
+#endif
+    bool r=impl_->importRequested;impl_->importRequested=false;return r;}
+bool XenithWindow::menuBarHit(int x,int y)const{if(!impl_)return false;
+#ifdef ZENITH_HAS_WAYLAND
+    if(impl_->useWayland)return impl_->wayland->menuBarHit(x,y);
+#endif
+    return y<28&&x<65;}
+bool XenithWindow::fileMenuOpen()const{if(!impl_)return false;
+#ifdef ZENITH_HAS_WAYLAND
+    if(impl_->useWayland)return impl_->wayland->fileMenuOpen();
+#endif
+    return impl_->fileMenu;}
+void XenithWindow::setTitle(const std::string& title){if(!impl_)return;
+#ifdef ZENITH_HAS_WAYLAND
+    if(impl_->useWayland){impl_->wayland->setTitle(title);return;}
+#endif
+    if(impl_->display&&impl_->window)XStoreName(impl_->display,impl_->window,title.c_str());}
+const InputState& XenithWindow::input()const{return input_;}
