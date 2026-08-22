@@ -3,16 +3,16 @@
 .type _start, @function
 
 _start:
-    # Intel syntax is used because Clang on Termux assembles .S files
-    # using its default integrated assembler syntax here.
-    mov eax, 1
-    mov edi, 1
-    lea rsi, [rip + message]
-    mov edx, 19
+    # x86-64 AT&T syntax. CMake invokes Clang with an explicit x86-64 target,
+    # even when the host (such as Termux) is ARM64.
+    mov $1, %eax
+    mov $1, %edi
+    lea message(%rip), %rsi
+    mov $19, %edx
     syscall
 
-    mov eax, 60
-    xor edi, edi
+    mov $60, %eax
+    xor %edi, %edi
     syscall
 
 .section .rodata
