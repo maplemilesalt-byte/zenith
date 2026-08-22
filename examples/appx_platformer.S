@@ -5,15 +5,14 @@
 # Zenith APPX platformer test.
 # 320x240 framebuffer at 0x800000, 32-bit pixels.
 # syscall 200 = present framebuffer.
-# This first test is intentionally self-contained and uses no libc.
-# It draws a simple platformer scene and animates the player horizontally.
+# The player automatically walks across the scene for now.
 
 _start:
     mov $0x800000, %r12
-    mov $0, %r13                 # animation frame
-
+    xor %r13, %r13
+    mov $2560, %r10
+    mov $288, %r11
 loop:
-    # Clear screen: dark blue background.
     mov $0x00001830, %eax
     mov $9600, %ecx
     mov %r12, %rdi
@@ -23,70 +22,64 @@ clear:
     dec %rcx
     jnz clear
 
-    # Ground: 320x24 at y=216.
     mov $0x00305020, %eax
-    mov $960, %ecx
     mov %r12, %rdi
-    add $69120, %rdi
-    mov %rdi, %r14
+    mov $552960, %r14
+    add %r14, %rdi
+    mov %r10, %r14
     call fill_ground
 
-    # Platforms.
     mov $0x00c08030, %eax
-    mov $0x800000, %rdi
-    add $51200, %rdi             # y=160
-    mov $32, %ecx
+    mov %r12, %rdi
+    mov $409600, %r14
+    add %r14, %rdi
     call fill_platform
 
     mov $0x00c08030, %eax
-    mov $0x800000, %rdi
-    add $38400, %rdi             # y=120
-    mov $24, %ecx
+    mov %r12, %rdi
+    mov $307200, %r14
+    add %r14, %rdi
     call fill_platform
 
     mov $0x00c08030, %eax
-    mov $0x800000, %rdi
-    add $25600, %rdi             # y=80
-    mov $20, %ecx
+    mov %r12, %rdi
+    mov $204800, %r14
+    add %r14, %rdi
     call fill_platform
 
-    # Player: an 16x16 yellow square. Its x position loops across the screen.
     mov $0x00f0d040, %eax
-    mov %r13, %r15
-    and $0xff, %r15
-    add $16, %r15
-    mov $0x800000, %rdi
-    add $69120, %rdi
-    # move up to y=200
-    sub $5120, %rdi
-    mov $16, %ecx
+    mov %r12, %rdi
+    mov $512000, %r14
+    add %r14, %rdi
+    add %r13, %rdi
     call fill_player
 
-    # Advance animation and wrap at 256.
+    mov %r13, %r14
+    cmp %r11, %r14
+    jl move_on
+    xor %r13, %r13
+move_on:
     add $1, %r13
-
     mov $200, %eax
     syscall
-
-    # Simple delay loop.
     mov $200000, %ecx
 delay:
-    dec %ecx
+    dec %rcx
     jnz delay
     jmp loop
 
+# rdi = start, r10 = row stride, rax = color
 fill_ground:
-    # 320 pixels wide = 160 qwords.
+    mov %rdi, %r14
     mov $160, %ecx
 fg:
     mov %rax, (%r14)
     add $8, %r14
-    dec %ecx
+    dec %rcx
     jnz fg
     ret
 
 fill_platform:
-    # 8 qwords per row, 8 rows. This gives a visible block.
     mov %rdi, %r14
     mov $8, %edx
 fp_row:
@@ -94,28 +87,24 @@ fp_row:
 fp_col:
     mov %rax, (%r14)
     add $8, %r14
-    dec %ebx
+    dec %rbx
     jnz fp_col
-    add $2560, %r14
-    dec %edx
+    add %r10, %r14
+    dec %rdx
     jnz fp_row
     ret
 
 fill_player:
     mov %rdi, %r14
-    # Horizontal offset, 8 bytes per pair of pixels.
-    add %r15, %r14
     mov $8, %edx
 pl_row:
     mov $2, %ebx
 pl_col:
     mov %rax, (%r14)
     add $8, %r14
-    dec %ebx
+    dec %rbx
     jnz pl_col
-    add $2560, %r14
-    sub $16, %r14
-    dec %edx
+    add %r10, %r14
+    dec %rdx
     jnz pl_row
     ret
-
