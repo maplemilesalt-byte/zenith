@@ -29,10 +29,11 @@
       <uap:VisualElements
           DisplayName="Zenith Xbox"
           Description="Zenith Xbox UWP host"
+          BackgroundColor="black"
           Square150x150Logo="Assets\Square150x150Logo.png"
           Square44x44Logo="Assets\Square44x44Logo.png">
         <uap:DefaultTile Square150x150Logo="Assets\Square150x150Logo.png" />
-        <uap:SplashScreen Image="Assets\SplashScreen.png" />
+        <uap:SplashScreen Image="Assets\SplashScreen.png" BackgroundColor="black" />
       </uap:VisualElements>
     </Application>
   </Applications>
