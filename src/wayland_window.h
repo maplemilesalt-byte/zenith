@@ -4,6 +4,7 @@
 #include "input/input_state.h"
 class WaylandWindow {
 public:
+    struct Impl;
     WaylandWindow(int width,int height,const char* title,InputState& input);
     ~WaylandWindow();
     WaylandWindow(const WaylandWindow&)=delete;
@@ -13,5 +14,5 @@ public:
     bool menuImportRequested(); bool menuBarHit(int x,int y) const; bool fileMenuOpen() const;
     void setTitle(const std::string& title);
 private:
-    struct Impl; Impl* impl_; InputState& input_;
+    Impl* impl_; InputState& input_;
 };
