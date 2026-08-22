@@ -12,9 +12,14 @@
 
 static bool runElf(const std::string& path, bool graphics, std::string& title, GuestMemory& memory, CPU& cpu) {
     constexpr std::uint64_t fb=0x800000, fbMapSize=0x50000;
+    constexpr std::uint64_t stackBase=0x3f00000, stackSize=0x100000, stackTop=stackBase+stackSize;
     if(graphics&&!memory.map(fb,fb,fbMapSize,GuestMemory::Permissions::Read|GuestMemory::Permissions::Write)) return false;
     ElfLoader loader; ElfLoadResult result; std::string error;
     if(!loader.loadFile(path,memory,result,error)){std::cerr<<"ELF load error: "<<error<<'\n';return false;}
+    if(!memory.map(stackBase,63ull*1024ull*1024ull,stackSize,GuestMemory::Permissions::Read|GuestMemory::Permissions::Write)){
+        std::cerr<<"ELF stack mapping failed\n";return false;
+    }
+    cpu.setRegister(CPU::RSP,stackTop);
     std::cout<<"ELF loaded: entry = 0x"<<std::hex<<result.entryPoint<<", program headers = "<<std::dec<<result.programHeaders<<'\n';
     cpu.setRip(result.entryPoint); constexpr std::uint64_t maxInstructions=1'000'000; std::uint64_t executed=0;
     while(!cpu.halted()&&executed<maxInstructions){if(!cpu.step()){std::cerr<<"CPU error after ELF load at RIP 0x"<<std::hex<<cpu.rip()<<": "<<cpu.lastError()<<'\n';return false;}++executed;}
