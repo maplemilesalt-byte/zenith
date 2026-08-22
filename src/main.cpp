@@ -3,66 +3,18 @@
 #include "memory/guest_memory.h"
 #include "renderer.h"
 #include "window.h"
+#include "appx/appx_loader.h"
 #include <chrono>
 #include <cstdio>
 #include <cstdint>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <thread>
+#include <vector>
 
-static bool runElf(const std::string& path, bool graphics, std::string& title, GuestMemory& memory, CPU& cpu) {
-    constexpr std::uint64_t fb=0x800000, fbMapSize=0x50000;
-    constexpr std::uint64_t stackBase=0x3f00000, stackSize=0x100000, stackTop=stackBase+stackSize;
-    if(graphics&&!memory.map(fb,fb,fbMapSize,GuestMemory::Permissions::Read|GuestMemory::Permissions::Write)) return false;
-    ElfLoader loader; ElfLoadResult result; std::string error;
-    if(!loader.loadFile(path,memory,result,error)){std::cerr<<"ELF load error: "<<error<<'\n';return false;}
-    if(!memory.map(stackBase,63ull*1024ull*1024ull,stackSize,GuestMemory::Permissions::Read|GuestMemory::Permissions::Write)){
-        std::cerr<<"ELF stack mapping failed\n";return false;
-    }
-    cpu.setRegister(CPU::RSP,stackTop);
-    std::cout<<"ELF loaded: entry = 0x"<<std::hex<<result.entryPoint<<", program headers = "<<std::dec<<result.programHeaders<<'\n';
-    cpu.setRip(result.entryPoint); constexpr std::uint64_t maxInstructions=1'000'000; std::uint64_t executed=0;
-    while(!cpu.halted()&&executed<maxInstructions){if(!cpu.step()){std::cerr<<"CPU error after ELF load at RIP 0x"<<std::hex<<cpu.rip()<<": "<<cpu.lastError()<<'\n';return false;}++executed;}
-    if(!cpu.halted()){std::cerr<<"ELF execution stopped after "<<maxInstructions<<" instructions (possible infinite loop).\n";return false;}
-    title=cpu.guestTitle();
-    if(graphics&&cpu.framePresented()) std::cout<<"Guest presented framebuffer 320x240 after "<<executed<<" instructions.\n";
-    else std::cout<<"\nELF exited with code "<<cpu.exitCode()<<" after "<<executed<<" instructions.\n";
-    return true;
-}
-
-static std::string chooseElfFile(){
-    FILE* p=popen("zenity --file-selection --title='Import ELF' --file-filter='ELF files | *.elf' 2>/dev/null","r");
-    if(!p) return {};
-    char buf[4096]{}; std::string path;
-    if(fgets(buf,sizeof(buf),p)) path=buf;
-    pclose(p);
-    while(!path.empty()&&(path.back()=='\n'||path.back()=='\r'))path.pop_back();
-    return path;
-}
-
-int main(int argc,char**argv){
-    constexpr int width=1280,height=720; constexpr std::uint64_t fb=0x800000;
-    std::cout<<"Zenith 0.3.0\nInitializing guest memory and x86-64 CPU...\n";
-    const bool requestedElf=argc>=3&&(std::string(argv[1])=="--elf"||std::string(argv[1])=="--graphics");
-    const bool requestedGraphics=argc>=3&&std::string(argv[1])=="--graphics";
-    GuestMemory memory(64ull*1024ull*1024ull);
-    if(requestedElf){CPU cpu(memory);std::string title;if(!runElf(argv[2],requestedGraphics,title,memory,cpu))return 1;if(requestedGraphics&&cpu.framePresented()){XenithWindow window(width,height,title.empty()?"Zenith - Xbox Series X|S Emulator":title.c_str());Renderer renderer(width,height);while(window.isOpen()){window.pollEvents();renderer.clear(0x00101018);if(!renderer.drawGuestFramebuffer(memory,fb,320,240))return 1;window.present(renderer.pixels(),renderer.width(),renderer.height());std::this_thread::sleep_for(std::chrono::milliseconds(16));}return 0;}return static_cast<int>(cpu.exitCode());}
-
-    XenithWindow window(width,height,"Zenith - Xbox Series X|S Emulator"); Renderer renderer(width,height); float angle=0;
-    while(window.isOpen()){
-        window.pollEvents();
-        if(window.menuImportRequested()){
-            std::string path=chooseElfFile();
-            if(!path.empty()){
-                GuestMemory guest(64ull*1024ull*1024ull); CPU guestCpu(guest); std::string title;
-                if(runElf(path,true,title,guest,guestCpu)&&guestCpu.framePresented()){
-                    window.setTitle(title.empty()?"Zenith - Xbox Series X|S Emulator":title);
-                    while(window.isOpen()){window.pollEvents();renderer.clear(0x00101018);if(!renderer.drawGuestFramebuffer(guest,fb,320,240))break;window.present(renderer.pixels(),renderer.width(),renderer.height());std::this_thread::sleep_for(std::chrono::milliseconds(16));}
-                    return 0;
-                }
-            }
-        }
-        renderer.clear(0x00101018);renderer.drawCube(angle);window.present(renderer.pixels(),renderer.width(),renderer.height());angle+=0.01f;std::this_thread::sleep_for(std::chrono::milliseconds(16));
-    }
-    std::cout<<"Zenith shutting down.\n";return 0;
-}
+static bool runImage(const std::vector<std::uint8_t>& image,bool graphics,std::string& title,GuestMemory& memory,CPU& cpu){constexpr std::uint64_t fb=0x800000,fbMapSize=0x50000,stackBase=0x3f00000,stackSize=0x100000,stackTop=stackBase+stackSize;if(graphics&&!memory.map(fb,fb,fbMapSize,GuestMemory::Permissions::Read|GuestMemory::Permissions::Write))return false;ElfLoader loader;ElfLoadResult result;std::string error;if(!loader.loadImage(image,memory,result,error)){std::cerr<<"ELF load error: "<<error<<'\n';return false;}if(!memory.map(stackBase,63ull*1024ull*1024ull,stackSize,GuestMemory::Permissions::Read|GuestMemory::Permissions::Write)){std::cerr<<"ELF stack mapping failed\n";return false;}cpu.setRegister(CPU::RSP,stackTop);std::cout<<"ELF loaded: entry = 0x"<<std::hex<<result.entryPoint<<", program headers = "<<std::dec<<result.programHeaders<<'\n';cpu.setRip(result.entryPoint);constexpr std::uint64_t maxInstructions=1'000'000;std::uint64_t executed=0;while(!cpu.halted()&&executed<maxInstructions){if(!cpu.step()){std::cerr<<"CPU error after ELF load at RIP 0x"<<std::hex<<cpu.rip()<<": "<<cpu.lastError()<<'\n';return false;}++executed;}if(!cpu.halted()){std::cerr<<"ELF execution stopped after "<<maxInstructions<<" instructions (possible infinite loop).\n";return false;}title=cpu.guestTitle();if(graphics&&cpu.framePresented())std::cout<<"Guest presented framebuffer 320x240 after "<<executed<<" instructions.\n";else std::cout<<"\nELF exited with code "<<cpu.exitCode()<<" after "<<executed<<" instructions.\n";return true;}
+static bool runElf(const std::string& path,bool graphics,std::string& title,GuestMemory& memory,CPU& cpu){std::ifstream file(path,std::ios::binary|std::ios::ate);if(!file){std::cerr<<"ELF file open failed\n";return false;}auto size=file.tellg();if(size<0)return false;std::vector<std::uint8_t> image(static_cast<std::size_t>(size));file.seekg(0);if(!image.empty()&&!file.read(reinterpret_cast<char*>(image.data()),static_cast<std::streamsize>(image.size())))return false;return runImage(image,graphics,title,memory,cpu);}
+static bool runAppx(const std::string& path,bool graphics,std::string& title,GuestMemory& memory,CPU& cpu){AppxLoader loader;AppxLoadResult result;std::string error;if(!loader.loadFile(path,result,error)){std::cerr<<"APPX load error: "<<error<<'\n';return false;}std::cout<<"APPX loaded: "<<result.manifest.identityName<<" "<<result.manifest.version<<"\nExecutable: "<<result.executableName<<'\n';return runImage(result.executable,graphics,title,memory,cpu);}
+static std::string chooseFile(const char* title,const char* filter){std::string cmd="zenity --file-selection --title='"+std::string(title)+"' --file-filter='"+std::string(filter)+"' 2>/dev/null";FILE* p=popen(cmd.c_str(),"r");if(!p)return{};char buf[4096]{};std::string path;if(fgets(buf,sizeof(buf),p))path=buf;pclose(p);while(!path.empty()&&(path.back()=='\n'||path.back()=='\r'))path.pop_back();return path;}
+int main(int argc,char**argv){constexpr int width=1280,height=720;constexpr std::uint64_t fb=0x800000;std::cout<<"Zenith 0.3.0\nInitializing guest memory and x86-64 CPU...\n";const bool requestedElf=argc>=3&&(std::string(argv[1])=="--elf"||std::string(argv[1])=="--graphics");const bool requestedAppx=argc>=3&&(std::string(argv[1])=="--appx"||std::string(argv[1])=="--appx-graphics");const bool requestedGraphics=argc>=3&&(std::string(argv[1])=="--graphics"||std::string(argv[1])=="--appx-graphics");GuestMemory memory(64ull*1024ull*1024ull);if(requestedElf||requestedAppx){CPU cpu(memory);std::string title;const bool ok=requestedAppx?runAppx(argv[2],requestedGraphics,title,memory,cpu):runElf(argv[2],requestedGraphics,title,memory,cpu);if(!ok)return 1;if(requestedGraphics&&cpu.framePresented()){XenithWindow window(width,height,title.empty()?"Zenith - Xbox Series X|S Emulator":title.c_str());Renderer renderer(width,height);while(window.isOpen()){window.pollEvents();renderer.clear(0x00101018);if(!renderer.drawGuestFramebuffer(memory,fb,320,240))return 1;window.present(renderer.pixels(),renderer.width(),renderer.height());std::this_thread::sleep_for(std::chrono::milliseconds(16));}return 0;}return static_cast<int>(cpu.exitCode());}XenithWindow window(width,height,"Zenith - Xbox Series X|S Emulator");Renderer renderer(width,height);float angle=0;while(window.isOpen()){window.pollEvents();renderer.clear(0x00101018);renderer.drawCube(angle);window.present(renderer.pixels(),renderer.width(),renderer.height());angle+=0.01f;std::this_thread::sleep_for(std::chrono::milliseconds(16));}std::cout<<"Zenith shutting down.\n";return 0;}
