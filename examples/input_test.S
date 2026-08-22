@@ -12,8 +12,8 @@ _start:
     mov $0xF000, %r15
 
 loop:
-    # Clear the framebuffer (320*240 pixels, 4 bytes each).
-    mov $0x00101018, %eax
+    # Clear the framebuffer to black. One qword contains two black pixels.
+    xor %eax, %eax
     mov $38400, %ecx
     mov %r12, %rdi
 clear:
@@ -28,7 +28,6 @@ clear:
 
     # A B X Y
     mov $0x004080c0, %eax
-    mov $1, %edx
     test $1, %r14d
     jz a_off
     mov $0x00ffffff, %eax
@@ -148,23 +147,32 @@ dr_off:
     syscall
     mov $200000, %ecx
 delay:
-    dec %rcx
+    dec %ecx
     jnz delay
     jmp loop
 
-# Draw an 8x8 block. rdi = framebuffer address, rax = color.
+# Draw an 16x8 block using 32-bit pixels so adjacent pixels do not become black.
+# rdi = framebuffer address, eax = color.
 box:
     mov %rdi, %r8
     mov $8, %edx
 box_row:
-    mov %rax, (%r8)
-    mov %rax, 8(%r8)
-    mov %rax, 16(%r8)
-    mov %rax, 24(%r8)
-    mov %rax, 32(%r8)
-    mov %rax, 40(%r8)
-    mov %rax, 48(%r8)
-    mov %rax, 56(%r8)
+    mov %eax, (%r8)
+    mov %eax, 4(%r8)
+    mov %eax, 8(%r8)
+    mov %eax, 12(%r8)
+    mov %eax, 16(%r8)
+    mov %eax, 20(%r8)
+    mov %eax, 24(%r8)
+    mov %eax, 28(%r8)
+    mov %eax, 32(%r8)
+    mov %eax, 36(%r8)
+    mov %eax, 40(%r8)
+    mov %eax, 44(%r8)
+    mov %eax, 48(%r8)
+    mov %eax, 52(%r8)
+    mov %eax, 56(%r8)
+    mov %eax, 60(%r8)
     add $1280, %r8
     dec %edx
     jnz box_row
