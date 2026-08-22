@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 class XenithWindow {
 public:
@@ -13,6 +14,10 @@ public:
     bool isOpen() const;
     void pollEvents();
     void present(const std::uint32_t* pixels, int width, int height);
+    bool menuImportRequested();
+    bool menuBarHit(int x, int y) const;
+    bool fileMenuOpen() const;
+    void setTitle(const std::string& title);
 
 private:
     struct Impl;
