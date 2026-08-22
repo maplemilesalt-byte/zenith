@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 class GuestMemory;
 
@@ -15,4 +16,6 @@ class ElfLoader {
 public:
     bool loadFile(const std::string& path, GuestMemory& memory,
                   ElfLoadResult& result, std::string& error) const;
+    bool loadImage(const std::vector<std::uint8_t>& image, GuestMemory& memory,
+                   ElfLoadResult& result, std::string& error) const;
 };
