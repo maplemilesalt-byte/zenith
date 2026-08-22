@@ -32,6 +32,8 @@ public:
     void setRip(std::uint64_t value);
     std::uint64_t rflags() const;
     const char* lastError() const;
+    bool halted() const;
+    std::int64_t exitCode() const;
 
 private:
     struct ModRM {
@@ -50,6 +52,7 @@ private:
     std::size_t extendedRegister(std::uint8_t index, std::uint8_t rexBit) const;
     void updateAddFlags(std::uint64_t lhs, std::uint64_t rhs, std::uint64_t result);
     void updateSubFlags(std::uint64_t lhs, std::uint64_t rhs, std::uint64_t result);
+    bool handleSyscall();
     bool fail(const char* message);
 
     GuestMemory& memory_;
@@ -57,4 +60,6 @@ private:
     std::uint64_t rip_ = 0;
     std::uint64_t rflags_ = 0;
     const char* lastError_ = nullptr;
+    bool halted_ = false;
+    std::int64_t exitCode_ = 0;
 };
