@@ -23,26 +23,39 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(zenith PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-# Build a tiny statically linked x86-64 ELF guest that only uses instructions
-# currently implemented by Zenith. It is useful as an end-to-end loader/CPU
-# smoke test and as the first real guest application.
+# Build the guest explicitly for x86-64. The host may be ARM64 (for example
+# Termux on a phone), so using the host compiler's default target would emit
+# ARM64 assembly instead of the x86-64 instructions Zenith emulates.
 find_program(ZENITH_CLANG clang REQUIRED)
+find_program(ZENITH_LLD ld.lld REQUIRED)
+set(ZENITH_HELLO_OBJ ${CMAKE_CURRENT_BINARY_DIR}/helloworld.o)
 set(ZENITH_HELLO_ELF ${CMAKE_CURRENT_BINARY_DIR}/helloworld.elf)
+
 add_custom_command(
-    OUTPUT ${ZENITH_HELLO_ELF}
+    OUTPUT ${ZENITH_HELLO_OBJ}
     COMMAND ${ZENITH_CLANG}
-            -nostdlib -static -fuse-ld=lld
-            -Wl,-T,${CMAKE_CURRENT_SOURCE_DIR}/examples/helloworld.ld
-            -o ${ZENITH_HELLO_ELF}
-            ${CMAKE_CURRENT_SOURCE_DIR}/examples/helloworld.S
-    DEPENDS examples/helloworld.S examples/helloworld.ld
-    COMMENT "Building Zenith guest helloworld.elf"
+            --target=x86_64-unknown-linux-gnu
+            -c ${CMAKE_CURRENT_SOURCE_DIR}/examples/helloworld.S
+            -o ${ZENITH_HELLO_OBJ}
+    DEPENDS examples/helloworld.S
+    COMMENT "Assembling x86-64 Zenith guest helloworld"
     VERBATIM
 )
+
+add_custom_command(
+    OUTPUT ${ZENITH_HELLO_ELF}
+    COMMAND ${ZENITH_LLD}
+            -m elf_x86_64
+            -T ${CMAKE_CURRENT_SOURCE_DIR}/examples/helloworld.ld
+            -o ${ZENITH_HELLO_ELF}
+            ${ZENITH_HELLO_OBJ}
+    DEPENDS ${ZENITH_HELLO_OBJ} examples/helloworld.ld
+    COMMENT "Linking x86-64 Zenith guest helloworld.elf"
+    VERBATIM
+)
+
 add_custom_target(zenith_helloworld ALL DEPENDS ${ZENITH_HELLO_ELF})
 add_dependencies(zenith zenith_helloworld)
-
-# Also expose the generated ELF as a named build target for scripts/Termux.
 add_custom_target(helloworld DEPENDS ${ZENITH_HELLO_ELF})
 
 enable_testing()
