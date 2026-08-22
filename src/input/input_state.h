@@ -11,6 +11,7 @@ struct VirtualControllerState {
     bool leftBumper=false, rightBumper=false;
     bool leftStickClick=false, rightStickClick=false;
     bool view=false, menu=false;
+    bool jump=false;
 };
 class InputState {
 public:
