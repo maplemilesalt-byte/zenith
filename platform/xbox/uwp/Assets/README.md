@@ -1,0 +1,1 @@
+Visual assets for the UWP package belong here. Replace the generated placeholder PNGs with final Zenith artwork before release.
