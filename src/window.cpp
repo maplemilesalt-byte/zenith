@@ -4,6 +4,7 @@
 #include <cstring>
 #include <stdexcept>
 #include <cstdlib>
+#include <iostream>
 #ifdef ZENITH_HAS_WAYLAND
 #include "wayland_window.h"
 #endif
@@ -49,7 +50,7 @@ void XenithWindow::present(const std::uint32_t* pixels,int width,int height){if(
 #ifdef ZENITH_HAS_WAYLAND
     if(impl_->useWayland){impl_->wayland->present(pixels,width,height);return;}
 #endif
-    if(!impl_->image){const int depth=DefaultDepth(impl_->display,DefaultScreen(impl_->display));auto* data=new char[(std::size_t)width*height*4);impl_->image=XCreateImage(impl_->display,DefaultVisual(impl_->display,DefaultScreen(impl_->display)),depth,ZPixmap,0,data,width,height,32,0);if(!impl_->image){delete[]data;throw std::runtime_error("Could not create XImage");}}std::memcpy(impl_->image->data,pixels,(std::size_t)width*height*4);XPutImage(impl_->display,impl_->window,impl_->gc,impl_->image,0,0,0,0,(unsigned)width,(unsigned)height);XSetForeground(impl_->display,impl_->gc,0x202020);XFillRectangle(impl_->display,impl_->window,impl_->gc,0,0,impl_->width,28);XSetForeground(impl_->display,impl_->gc,0xffffff);XDrawString(impl_->display,impl_->window,impl_->gc,8,19,"File",4);XDrawString(impl_->display,impl_->window,impl_->gc,70,19,"Emulation",9);XDrawString(impl_->display,impl_->window,impl_->gc,145,19,"View",4);XDrawString(impl_->display,impl_->window,impl_->gc,190,19,"Help",4);if(impl_->fileMenu){XSetForeground(impl_->display,impl_->gc,0x303030);XFillRectangle(impl_->display,impl_->window,impl_->gc,0,28,230,30);XSetForeground(impl_->display,impl_->gc,0xffffff);XDrawString(impl_->display,impl_->window,impl_->gc,10,48,"Import ELF...",12);XDrawString(impl_->display,impl_->window,impl_->gc,120,48,"APPX (future)",13);}XFlush(impl_->display);}
+    if(!impl_->image){const int depth=DefaultDepth(impl_->display,DefaultScreen(impl_->display));auto* data=new char[(std::size_t)width*height*4];impl_->image=XCreateImage(impl_->display,DefaultVisual(impl_->display,DefaultScreen(impl_->display)),depth,ZPixmap,0,data,width,height,32,0);if(!impl_->image){delete[]data;throw std::runtime_error("Could not create XImage");}}std::memcpy(impl_->image->data,pixels,(std::size_t)width*height*4);XPutImage(impl_->display,impl_->window,impl_->gc,impl_->image,0,0,0,0,(unsigned)width,(unsigned)height);XSetForeground(impl_->display,impl_->gc,0x202020);XFillRectangle(impl_->display,impl_->window,impl_->gc,0,0,impl_->width,28);XSetForeground(impl_->display,impl_->gc,0xffffff);XDrawString(impl_->display,impl_->window,impl_->gc,8,19,"File",4);XDrawString(impl_->display,impl_->window,impl_->gc,70,19,"Emulation",9);XDrawString(impl_->display,impl_->window,impl_->gc,145,19,"View",4);XDrawString(impl_->display,impl_->window,impl_->gc,190,19,"Help",4);if(impl_->fileMenu){XSetForeground(impl_->display,impl_->gc,0x303030);XFillRectangle(impl_->display,impl_->window,impl_->gc,0,28,230,30);XSetForeground(impl_->display,impl_->gc,0xffffff);XDrawString(impl_->display,impl_->window,impl_->gc,10,48,"Import ELF...",12);XDrawString(impl_->display,impl_->window,impl_->gc,120,48,"APPX (future)",13);}XFlush(impl_->display);}
 bool XenithWindow::menuImportRequested(){if(!impl_)return false;
 #ifdef ZENITH_HAS_WAYLAND
     if(impl_->useWayland)return impl_->wayland->menuImportRequested();
