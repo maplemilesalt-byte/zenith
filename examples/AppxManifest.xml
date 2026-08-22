@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10">
+  <Identity Name="Zenith.PlatformerTest" Publisher="CN=Zenith" Version="1.0.0.0" />
+  <Properties>
+    <DisplayName>Zenith Platformer Test</DisplayName>
+    <PublisherDisplayName>Zenith</PublisherDisplayName>
+    <Description>Small platformer used to test Zenith APPX loading.</Description>
+  </Properties>
+  <Applications>
+    <Application Id="Platformer" Executable="ZenithPlatformer.elf" EntryPoint="Zenith.Platformer" />
+  </Applications>
+</Package>
