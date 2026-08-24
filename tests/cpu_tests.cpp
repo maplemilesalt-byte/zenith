@@ -8,7 +8,7 @@
 int main() {
     using P = GuestMemory::Permissions;
     GuestMemory memory(64ull * 1024ull * 1024ull);
-    assert(memory.map(0x1000, 0, GuestMemory::PageSize * 8, P::Read | P::Write | P::Execute));
+    assert(memory.map(0x1000, 0, GuestMemory::PageSize, P::Read | P::Write | P::Execute));
     assert(memory.map(0x8000, 0x4000, GuestMemory::PageSize * 2, P::Read | P::Write));
 
     CPU cpu(memory);
