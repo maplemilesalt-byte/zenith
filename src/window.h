@@ -4,6 +4,7 @@
 #include "input/input_state.h"
 class XenithWindow {
 public:
+    struct Impl;
     XenithWindow(int width,int height,const char* title); ~XenithWindow();
     XenithWindow(const XenithWindow&)=delete; XenithWindow& operator=(const XenithWindow&)=delete;
     bool isOpen() const; void pollEvents();
@@ -11,5 +12,5 @@ public:
     bool menuImportRequested(); bool menuBarHit(int x,int y) const; bool fileMenuOpen() const;
     void setTitle(const std::string& title); const InputState& input() const;
 private:
-    struct Impl; Impl* impl_; InputState input_;
+    Impl* impl_; InputState input_;
 };
