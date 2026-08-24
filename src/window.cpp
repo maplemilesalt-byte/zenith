@@ -66,7 +66,7 @@ static void pollGamepad(XenithWindow::Impl& impl,InputState& input){
         if(event.type==EV_KEY){
             const bool pressed=event.value!=0;
             switch(event.code){
-                case BTN_SOUTH:case BTN_GAMEPAD:input.setGamepadButton(ZenithGamepad::A,pressed);break;
+                case BTN_SOUTH:input.setGamepadButton(ZenithGamepad::A,pressed);break;
                 case BTN_EAST:input.setGamepadButton(ZenithGamepad::B,pressed);break;
                 case BTN_WEST:input.setGamepadButton(ZenithGamepad::X,pressed);break;
                 case BTN_NORTH:input.setGamepadButton(ZenithGamepad::Y,pressed);break;
