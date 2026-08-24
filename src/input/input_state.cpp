@@ -1,4 +1,5 @@
 #include "input_state.h"
+#include <algorithm>
 #include <cmath>
 
 void InputState::reset(){
@@ -30,7 +31,7 @@ void InputState::rebuildMovement(){
     controller_.menu=enter_||gamepadMenu_;
     controller_.dpadUp=di_||gamepadDpadUp_;
     controller_.dpadDown=dk_||gamepadDpadDown_;
-    controller_.dpadLeft=dj_||gamepadDpadLeft_;
+    controller_.dpadLeft=dl_||gamepadDpadLeft_;
     controller_.dpadRight=dl_||gamepadDpadRight_;
 }
 void InputState::setKey(std::uint32_t key,bool pressed){
