@@ -1,4 +1,5 @@
-## Paused for a indefinite amount of time
+# It's back!
+
 # Zenith
 
 Experimental Xbox Series X|S emulator project.
